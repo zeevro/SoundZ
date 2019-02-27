@@ -4,12 +4,13 @@ import pynput
 
 class SoundZUdpSender:
     def __init__(self, ip, port=sz.DEFAULT_PORT, compressed=sz.DEFAULT_COMPRESSED, ptt_key=None):
-        self._stream = sz.SoundZSyncingStreamDatagram(sz.UdpSocketIO().tx(ip, port), compressed=compressed)
+        self._stream = sz.SoundZMinimalStream(sz.UdpSocketIO().tx(ip, port), compressed=compressed)
         self._audio = sz.Audio(input_needed=True).get_params_from_soundz(self._stream).add_callback(self._stream.write_packet)
+        sz.AudioInputKeepAlive(self._audio)
         if ptt_key is None:
-            self._input_filter = sz.VoxAudioInputFilter(self._audio)
+            sz.VoxAudioInputFilter(self._audio)
         else:
-            self._input_filter = sz.PushToTalkAudioInputFilter(self._audio, ptt_key)
+            sz.PushToTalkAudioInputFilter(self._audio, ptt_key)
 
     def start(self):
         self._audio.start_capture()
@@ -70,7 +71,7 @@ def main():
     else:
         print(f'Using Push-To-Talk filter with the {ptt_key} key.')
 
-    print('Starting')
+    print('Starting.')
     s.start()
 
     try:

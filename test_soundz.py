@@ -4,7 +4,7 @@ from binascii import hexlify
 import queue
 
 
-RECORD_TIME = 5
+RECORD_TIME = 3
 
 
 class DummyAudio:
@@ -48,7 +48,7 @@ def test_loopback_nofile():
     print('Testing audio loopback')
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.set_callback(audio.playback)
+    audio.add_callback(audio.playback)
     audio.start_capture()
 
     time.sleep(RECORD_TIME)
@@ -68,7 +68,7 @@ def test_record_write(fn='test.sndz', compressed=True):
             sf.get_params_from_audio(ac)
             sf.write_file_header()
 
-            ac.set_callback(sf.write_packet)
+            ac.add_callback(sf.write_packet)
             print('Recording...')
             ac.start_capture()
             while sf.current_timestamp < RECORD_TIME:
@@ -140,7 +140,7 @@ def test_tcp():
 
     audio = Audio(input_needed=True, output_needed=True)
     audio.get_params_from_soundz(sender_sndz)
-    audio.set_callback(sender_sndz.write_packet)
+    audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
     stop_time = time.time() + RECORD_TIME
@@ -167,7 +167,7 @@ def test_pipe():
 
     audio = Audio(input_needed=True, output_needed=True)
     audio.get_params_from_soundz(sender_sndz)
-    audio.set_callback(sender_sndz.write_packet)
+    audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
     stop_time = time.time() + RECORD_TIME
@@ -190,7 +190,7 @@ def test_syncing_stream_pipe():
 
     audio = Audio(input_needed=True, output_needed=True)
     audio.get_params_from_soundz(sender_sndz)
-    audio.set_callback(sender_sndz.write_packet)
+    audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
     stop_time = time.time() + RECORD_TIME
@@ -211,7 +211,7 @@ def test_syncing_stream_udp():
 
     audio = Audio(input_needed=True, output_needed=True)
     audio.get_params_from_soundz(sender_sndz)
-    audio.set_callback(sender_sndz.write_packet)
+    audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
     stop_time = time.time() + RECORD_TIME
@@ -244,18 +244,18 @@ def run_all_tests():
 
     os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
-    #test_loopback_nofile()  # Just a sanity check to see that the audio works
-    #test_record_write('test_raw.sndz', False)
-    #test_read('test_raw.sndz', True)
-    #test_read_write('test_raw.sndz', 'test_compressed.sndz', compressed=True)
-    #test_read('test_compressed.sndz', True)
-    #test_read_write('test_compressed.sndz', 'test_raw_2.sndz', compressed=False)
-    #test_read('test_raw_2.sndz', True)
-    #test_tcp()
-    #test_pipe()
-    #test_syncing_stream_pipe()
+    test_loopback_nofile()  # Just a sanity check to see that the audio works
+    test_record_write('test_raw.sndz', False)
+    test_read('test_raw.sndz', True)
+    test_read_write('test_raw.sndz', 'test_compressed.sndz', compressed=True)
+    test_read('test_compressed.sndz', True)
+    test_read_write('test_compressed.sndz', 'test_raw_2.sndz', compressed=False)
+    test_read('test_raw_2.sndz', True)
+    test_tcp()
+    test_pipe()
+    test_syncing_stream_pipe()
     test_syncing_stream_udp()
-    #test_vox()
+    test_vox()
 
     print('Done.')
 

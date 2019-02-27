@@ -15,6 +15,13 @@ except ImportError:
     import opuslib
 
 
+try:
+    import pynput
+    _have_pynput = True
+except ImportError:
+    _have_pynput = False
+
+
 # TODO: Calculate the right buffer size for the input stream
 # TODO: Calculate samples per frame so opuslib is happy with frame duration
 # TODO: Opus bitrate?
@@ -29,7 +36,27 @@ PACKET_HEADER_MAGIC = b'pktZ'
 PACKET_HEADER_STRUCT = struct.Struct('<H')
 
 
+DEFAULT_SAMPLE_RATE = 12000
+DEFAULT_CHANNELS = 1
+DEFAULT_SAMPLES_PER_FRAME = 120
+DEFAULT_SAMPLE_FORMAT = pyaudio.paInt16
+DEFAULT_COMPRESSED = True
+DEFAULT_OPUS_APPLICATION = opuslib.APPLICATION_VOIP
+
+DEFAULT_VOX_THRESHOLD = 800
+DEFAULT_VOX_TIMEOUT = 0.4
+
+DEFAULT_KEEPALIVE_TIME = 8
+
+AUDIO_INPUT_CALLBACK_TYPE_FILTER = 1
+AUDIO_INPUT_CALLBACK_TYPE_EFFECT = 2
+AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL = 3
+AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT = 4
+
 DEFAULT_PORT = 4453
+
+
+sample_format_names = {getattr(pyaudio, f'pa{name}'): name for name in ['Int8', 'UInt8', 'Int16', 'Int24', 'Int32', 'Float32']}
 
 
 class TcpSocketWrapperIO:
@@ -49,20 +76,20 @@ class UdpSocketIO(socket.socket):
         self.settimeout(timeout)
         self._target = None
 
-    def listening(self, port=DEFAULT_PORT, interface=None):
+    def rx(self, port=DEFAULT_PORT, interface=None):
         if interface is None:
             interface = '0.0.0.0'
         self.bind((interface, port))
         return self
 
-    def sending(self, ip, port=DEFAULT_PORT):
+    def tx(self, ip, port=DEFAULT_PORT):
         self._target = (ip, port)
         return self
 
     def write(self, data):
         return self.sendto(data, self._target)
 
-    def read(self, length):
+    def read(self, length=None):
         return self.recv(0xFFFF)
 
 
@@ -119,10 +146,12 @@ class DatagramMixin:
             return super(DatagramMixin, self).read_packet()
 
 
-class SoundZBasicStream:
-    '''A dead-simple steramable audio format. Carries no data about the audio inside.'''
+class SoundZMinimalStream:
+    '''The simplest stream imaginable. Only sends the raw frames. Works only on datagram-based IOs (since no packet size is encoded).'''
 
-    def __init__(self, _io, sample_rate=48000, channels=1, frame_samples=120, sample_format=pyaudio.paInt16, compressed=True, opus_app=opuslib.APPLICATION_VOIP):
+    def __init__(self, _io, sample_rate=DEFAULT_SAMPLE_RATE, channels=DEFAULT_CHANNELS,
+                 frame_samples=DEFAULT_SAMPLES_PER_FRAME, sample_format=DEFAULT_SAMPLE_FORMAT,
+                 compressed=DEFAULT_COMPRESSED, opus_app=DEFAULT_OPUS_APPLICATION):
         self._io = _io
 
         self.sample_rate = sample_rate
@@ -133,7 +162,6 @@ class SoundZBasicStream:
         self._opus_app = opus_app
 
         self._packet_count = 0
-        self._frame_bytes = channels * frame_samples * pyaudio.get_sample_size(sample_format)
 
         self._encoder = None
         self._decoder = None
@@ -141,7 +169,6 @@ class SoundZBasicStream:
     def _get_encoder(self):
         if self._encoder is None:
             self._encoder = opuslib.Encoder(self.sample_rate, self.channels, self._opus_app)
-            self._encoder.bitrate = 192 * 1024  # What is this good for?
         return self._encoder
 
     def _get_decoder(self):
@@ -163,19 +190,65 @@ class SoundZBasicStream:
         self.frame_samples = audio.frame_samples
         self.sample_format = audio.sample_format
 
-    @property
-    def frame_bytes(self):
-        return self._frame_bytes
+    def write_packet(self, frame):
+        if self.compressed:
+            frame = self._get_encoder().encode(frame, self.frame_samples)
+            print(f'frame size {len(frame)}')
+        return self._io.write(frame)
+
+    def write_packets(self, packets):
+        for packet in packets:
+            self.write_packet(packet)
+
+    def read_packet(self):
+        frame = self._io.read()
+        if self.compressed:
+            frame = self._get_decoder().decode(frame, self.frame_samples)
+        return frame
+
+    def iter_packets(self):
+        p = self.read_packet()
+        while p:
+            yield p
+            p = self.read_packet()
+
+    __iter__ = iter_packets
+
+    def __str__(self):
+        if self.channels == 1:
+            ch_str = 'Mono'
+        elif self.channels == 2:
+            ch_str = 'Stereo'
+        else:
+            ch_str = f'{self.channels} channels'
+        return f'{self.__class__.__name__}: Sapmle rate: {self.sample_rate / 1000} kHz, {ch_str}, {self.frame_samples} samples per frame, {sample_format_names[self.sample_format]}{", Compressed" if self.compressed else ""}. Backing IO is {self._io.__class__.__name__}.'
+
+
+class SoundZBasicStream(SoundZMinimalStream):
+    '''A dead-simple steramable audio format. Carries no data about the audio inside.'''
+
+    def __init__(self, _io, sample_rate=DEFAULT_SAMPLE_RATE, channels=DEFAULT_CHANNELS,
+                 frame_samples=DEFAULT_SAMPLES_PER_FRAME, sample_format=DEFAULT_SAMPLE_FORMAT,
+                 compressed=DEFAULT_COMPRESSED, opus_app=DEFAULT_OPUS_APPLICATION):
+        self._io = _io
+
+        self.sample_rate = sample_rate
+        self.channels = channels
+        self.frame_samples = frame_samples
+        self.sample_format = sample_format
+        self.compressed = compressed
+        self._opus_app = opus_app
+
+        self._packet_count = 0
+
+        self._encoder = None
+        self._decoder = None
 
     def write_packet(self, packet):
         if self.compressed:
             packet = self._get_encoder().encode(packet, self.frame_samples)
         self._io.write(PACKET_HEADER_STRUCT.pack(len(packet)))
         self._io.write(packet)
-
-    def write_packets(self, packets):
-        for packet in packets:
-            self.write_packet(packet)
 
     def read_packet(self):
         packet_header = self._io.read(PACKET_HEADER_STRUCT.size)
@@ -186,14 +259,6 @@ class SoundZBasicStream:
         if self.compressed:
             packet = self._get_decoder().decode(packet, self.frame_samples)
         return packet
-
-    def iter_packets(self):
-        p = self.read_packet()
-        while p:
-            yield p
-            p = self.read_packet()
-
-    __iter__ = iter_packets
 
 
 class SoundZFileStream(SoundZBasicStream):
@@ -225,8 +290,10 @@ class SoundZFileStream(SoundZBasicStream):
 
         sample_rate, channels, frame_samples, sample_format, compressed = FILE_HEADER_STRUCT.unpack(file_header)
 
+        assert sample_rate >= 8000, 'Sample rate must be at least 8 kHz'
         assert channels > 0, 'Must have at least one channel'
-        pyaudio.get_sample_size(sample_format)  # Make sure the format is valid
+        assert sample_format in sample_format_names, 'Invalid sample format'
+        assert 0 <= compressed <= 1, 'compressed must be either 1 or 0'
 
         self.sample_rate = sample_rate
         self.channels = channels
@@ -307,7 +374,9 @@ class SoundZSyncingStreamDatagram(DatagramMixin, SoundZSyncingStream):
 
 
 class Audio:
-    def __init__(self, input_needed=False, output_needed=False, sample_rate=48000, channels=1, frame_samples=120, sample_format=pyaudio.paInt16):
+    def __init__(self, input_needed=False, output_needed=False,
+                 sample_rate=DEFAULT_SAMPLE_RATE, channels=DEFAULT_CHANNELS,
+                 frame_samples=DEFAULT_SAMPLES_PER_FRAME, sample_format=DEFAULT_SAMPLE_FORMAT):
         self.sample_rate = sample_rate
         self.channels = channels
         self.frame_samples = frame_samples
@@ -323,7 +392,7 @@ class Audio:
         self._input_stream = None
         self._output_stream = None
 
-        self._callback = None
+        self.callback_chain = []
 
     def _input_callback(self, in_data, frame_count, time_info, status_flags):
         buf = io.BytesIO(in_data)
@@ -331,10 +400,13 @@ class Audio:
             frame = buf.read(self.frame_bytes)
             if not frame:
                 break
-            try:
-                self._callback(frame)
-            except Exception:
-                pass
+            for callback_type, func in self.callback_chain:
+                try:
+                    if (not frame) and callback_type == AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT:
+                        break
+                    frame = func(frame or b'')
+                except Exception as e:
+                    print(f'{e.__class__.__name__}: {e}')
         return (None, 0)
 
     def get_params_from_soundz(self, soundz):
@@ -372,12 +444,18 @@ class Audio:
                                                    frames_per_buffer=self.frame_samples,
                                                    input_device_index=device['index'])
 
-    def set_callback(self, func):
-        self._callback = func
+    def add_callback(self, callback, callback_type=AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT):
+        if hasattr(callback, 'callback_type') and hasattr(callback, 'callback') and callable(callback.callback):
+            func = callback.callback
+            callback_type = callback.callback_type
+        else:
+            func = callback
+        self.callback_chain.append((callback_type, func))
+        self.callback_chain.sort()
         return self
 
     def start_capture(self):
-        assert self._callback is not None, 'No callback set'
+        assert len(self.callback_chain) > 0, 'No input callbacks'
         self.initialize()
         self._input_stream.start_stream()
         return self
@@ -415,35 +493,97 @@ class Audio:
         self.close()
 
 
-class Vox:
-    def __init__(self, threshold=800, timeout=0.4):
+class AudioInputCallbackBase:
+    callback_type = None
+
+    def __init__(self, audio):
+        self._audio = audio
+        audio.add_callback(self.callback, self.callback_type)
+
+    def callback(self, frame):
+        raise NotImplemented()
+
+
+class AudioInputKeepAlive(AudioInputCallbackBase):
+    callback_type = AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL
+
+    def __init__(self, audio):
+        super(AudioInputKeepAlive, self).__init__(audio)
+        self._last_active = 0
+
+    def callback(self, frame):
+        if frame:
+            if self._last_active:
+                self._last_active = 0
+            return frame
+
+        if not self._last_active:
+            self._last_active = time.time()
+            return frame
+
+        if time.time() - self._last_active >= DEFAULT_KEEPALIVE_TIME:
+            self._last_active = time.time()
+            return bytes(self._audio.frame_bytes)
+
+        return frame
+
+
+class AudioInputFilterBase(AudioInputCallbackBase):
+    callback_type = AUDIO_INPUT_CALLBACK_TYPE_FILTER
+
+    def callback(self, frame):
+        if self.filter(frame):
+            return frame
+
+    def filter(self, frame):
+        raise NotImplemented()
+
+
+class VoxAudioInputFilter(AudioInputFilterBase):
+    def __init__(self, audio, threshold=DEFAULT_VOX_THRESHOLD, timeout=DEFAULT_VOX_TIMEOUT):
+        super(VoxAudioInputFilter, self).__init__(audio)
         self.threshold = threshold
         self.timeout = timeout
-        self._breach_time = None
-        self._audio = None
+        self._breach_timestamp = None
 
-    def _audio_set_callback(self, func):
-        self._callback = func
+    def _calculate_volume(self, frame):
+        return audioop.rms(frame, self._audio.sample_size)
 
-    def _audio_callback(self, frame):
-        volume = audioop.rms(frame, self._audio.sample_size)
-        if self.is_breached(volume):
-            self._callback(frame)
-
-    def is_breached(self, volume):
+    def filter(self, frame):
+        volume = self._calculate_volume(frame)
         if volume < self.threshold:
-            if self._breach_time is None:
-                self._breach_time = time.time()
-            elif self._breach_time + self.timeout < time.time():
+            if self._breach_timestamp is None:
+                self._breach_timestamp = time.time()
+            elif self._breach_timestamp + self.timeout < time.time():
                 return False
         else:
-            self._breach_time = None
+            self._breach_timestamp = None
 
         return True
 
-    def attach_to_audio(self, audio):
-        self._audio = audio
-        self._callback = self._audio._callback
-        self._audio._callback = self._audio_callback
-        self._audio.set_callback = self._audio_set_callback
-        return self
+
+if _have_pynput:
+    class PushToTalkAudioInputFilter(AudioInputFilterBase):
+        def __init__(self, audio, key):
+            super(PushToTalkAudioInputFilter, self).__init__(audio)
+            self._key = key
+            self._listener = pynput.keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+            self._listener_started = False
+            self._pressed = False
+
+        def _on_press(self, key):
+            if key == self._key:
+                self._pressed = True
+            return self._audio._input_stream.is_active()
+
+        def _on_release(self, key):
+            if key == self._key:
+                self._pressed = False
+            return self._audio._input_stream.is_active()
+
+        def filter(self, frame):
+            if not self._listener_started:
+                self._listener.start()
+                self._listener_started = True
+            return self._pressed
+

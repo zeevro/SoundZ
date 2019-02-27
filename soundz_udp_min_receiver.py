@@ -1,14 +1,14 @@
-﻿from soundz import SoundZSyncingStreamDatagram, UdpSocketIO, Audio, DEFAULT_PORT
+﻿from soundz import SoundZMinimalStream, UdpSocketIO, Audio, DEFAULT_PORT
 import threading
 
 
-class SoundZUdpReceiver:
+class SoundZUdpMinReceiver:
     def __init__(self, port=DEFAULT_PORT, interface=None):
         self._port = port
         self._interface = interface
         self._socket = UdpSocketIO()
-        self._stream = SoundZSyncingStreamDatagram(self._socket)
-        self._audio = Audio(output_needed=True)
+        self._stream = SoundZMinimalStream(self._socket)
+        self._audio = Audio(output_needed=True).get_params_from_soundz(self._stream)
         self._thread = None
         self._stopped = False
 
@@ -20,10 +20,6 @@ class SoundZUdpReceiver:
 
     def start(self):
         self._socket.rx(self._port, self._interface)
-        self._stream.wait_for_sync()
-        print('Got sync!')
-        print(self._stream)
-        self._audio.get_params_from_soundz(self._stream)
         self._thread = threading.Thread(target=self._thread_func)
         self._thread.start()
 
@@ -50,9 +46,10 @@ def main():
     p.add_argument('-i', '--interface')
     args = p.parse_args()
 
-    print('Start.')
+    s = SoundZUdpMinReceiver(args.port, args.interface)
+    print(s._stream)
 
-    s = SoundZUdpReceiver(args.port, args.interface)
+    print('Starting.')
     s.start()
 
     try:
