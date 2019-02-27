@@ -122,7 +122,7 @@ class DatagramReadPacketMixin:
 
 class PacketHeaderMixin:
     def _frame2packet(self, frame):
-        frame = super(PacketHeaderMixin, self)._frame2packet(frame)
+        frame = super()._frame2packet(frame)
         return PACKET_HEADER_STRUCT.pack(len(frame)) + frame
 
     def read_packet(self):
@@ -159,14 +159,14 @@ class FileHeaderMixin:
 
 class MagicsMixin:
     def _frame2packet(self, frame):
-        return PACKET_HEADER_MAGIC + super(MagicsMixin, self)._frame2packet(frame)
+        return PACKET_HEADER_MAGIC + super()._frame2packet(frame)
 
     def _packet2frame(self, packet):
         magic, packet = packet[:MAGIC_SIZE], packet[MAGIC_SIZE:]
         if magic == PACKET_HEADER_MAGIC:
-            return super(MagicsMixin, self)._packet2frame(packet)
+            return super()._packet2frame(packet)
         elif magic == FILE_HEADER_MAGIC:
-            super(MagicsMixin, self)._process_file_header(packet)
+            super()._process_file_header(packet)
             raise SkipPacket
 
     def read_packet(self):
@@ -175,9 +175,9 @@ class MagicsMixin:
             if not magic:  # EOF
                 return b''
             if magic == PACKET_HEADER_MAGIC:
-                return super(MagicsMixin, self).read_packet()
+                return super().read_packet()
             elif magic == FILE_HEADER_MAGIC:
-                super(MagicsMixin, self)._process_file_header(self._io.read(FILE_HEADER_STRUCT.size))
+                super()._process_file_header(self._io.read(FILE_HEADER_STRUCT.size))
             else:
                 assert f'Bad magic {magic}'
 
@@ -186,7 +186,7 @@ class AutoSyncMixin:
     def write_packet(self, packet):
         if self.packet_count % 100 == 0:
             self.write_file_header()
-        super(AutoSyncMixin, self).write_packet(packet)
+        super().write_packet(packet)
 
 
 class SoundZBasicDatagramStream(DatagramReadPacketMixin, AbstractSoundZStream):

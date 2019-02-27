@@ -72,7 +72,7 @@ class TcpSocketWrapperIO:
 
 class UdpSocketIO(socket.socket):
     def __init__(self, timeout=10):
-        super(UdpSocketIO, self).__init__(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        super().__init__(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.settimeout(timeout)
         self._target = None
 
@@ -131,19 +131,19 @@ class DatagramMixin:
 
     def write_file_header(self):
         with _datagram_io(self):
-            super(DatagramMixin, self).write_file_header()
+            super().write_file_header()
 
     def write_packet(self, packet):
         with _datagram_io(self):
-            super(DatagramMixin, self).write_packet(packet)
+            super().write_packet(packet)
 
     def wait_for_sync(self):
         with _datagram_io(self):
-            return super(DatagramMixin, self).wait_for_sync()
+            return super().wait_for_sync()
 
     def read_packet(self):
         with _datagram_io(self):
-            return super(DatagramMixin, self).read_packet()
+            return super().read_packet()
 
 
 class SoundZMinimalStream:
@@ -265,7 +265,7 @@ class SoundZFileStream(SoundZBasicStream):
     '''This adds a file magic, file header, and packet magic to mark the starts of packets. Can be streamed or saved to a file. Don't forget to call write_file_header()!!'''
 
     def __init__(self, *a, **kw):
-        super(SoundZFileStream, self).__init__(*a, **kw)
+        super().__init__(*a, **kw)
         self._packet_count = 0
 
     @property
@@ -282,7 +282,7 @@ class SoundZFileStream(SoundZBasicStream):
 
     def write_packet(self, packet):
         self._io.write(PACKET_HEADER_MAGIC)
-        super(SoundZFileStream, self).write_packet(packet)
+        super().write_packet(packet)
         self._packet_count += 1
 
     def _process_file_header(self):
@@ -313,7 +313,7 @@ class SoundZFileStream(SoundZBasicStream):
         packet_header_magic = self._io.read(len(PACKET_HEADER_MAGIC))
         if not packet_header_magic:  # EOF
             return b''
-        packet = super(SoundZFileStream, self).read_packet()
+        packet = super().read_packet()
         self._packet_count += 1
         return packet
 
@@ -322,7 +322,7 @@ class SoundZSyncingStream(SoundZFileStream):
     '''This adds a self-synchronizing element for the stream meta-data by inserting a file header every 100 packets so it can be joined by a listened mid-stream.'''
 
     def __init__(self, *a, **kw):
-        super(SoundZSyncingStream, self).__init__(*a, **kw)
+        super().__init__(*a, **kw)
         self._synced = False
 
     @property
@@ -332,7 +332,7 @@ class SoundZSyncingStream(SoundZFileStream):
     def write_packet(self, packet):
         if self._packet_count % 100 == 0:
             self.write_file_header()
-        super(SoundZSyncingStream, self).write_packet(packet)
+        super().write_packet(packet)
 
     def _wait_for_file_header_magic(self):
         while 1:
@@ -355,7 +355,7 @@ class SoundZSyncingStream(SoundZFileStream):
         self.wait_for_sync()
 
         try:
-            return super(SoundZSyncingStream, self).read_packet()
+            return super().read_packet()
         except Exception:
             self._synced = False
             return self.read_packet()
@@ -508,7 +508,7 @@ class AudioInputKeepAlive(AudioInputCallbackBase):
     callback_type = AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL
 
     def __init__(self, audio):
-        super(AudioInputKeepAlive, self).__init__(audio)
+        super().__init__(audio)
         self._last_active = 0
 
     def callback(self, frame):
@@ -541,7 +541,7 @@ class AudioInputFilterBase(AudioInputCallbackBase):
 
 class VoxAudioInputFilter(AudioInputFilterBase):
     def __init__(self, audio, threshold=DEFAULT_VOX_THRESHOLD, timeout=DEFAULT_VOX_TIMEOUT):
-        super(VoxAudioInputFilter, self).__init__(audio)
+        super().__init__(audio)
         self.threshold = threshold
         self.timeout = timeout
         self._breach_timestamp = None
@@ -565,7 +565,7 @@ class VoxAudioInputFilter(AudioInputFilterBase):
 if _have_pynput:
     class PushToTalkAudioInputFilter(AudioInputFilterBase):
         def __init__(self, audio, key):
-            super(PushToTalkAudioInputFilter, self).__init__(audio)
+            super().__init__(audio)
             self._key = key
             self._listener = pynput.keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
             self._listener_started = False
