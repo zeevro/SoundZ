@@ -59,19 +59,19 @@ class UdpAudioClient:
                 print(f'ERROR! {e.__class__.__name__}: {e}')
 
     def _encode_frame(self, frame: bytes) -> bytes:
+        frame = self._encoder.encode(frame, self.samples_per_frame)
         return frame
-        return self._encoder.encode(frame, self.samples_per_frame)
 
     def _decode_frame(self, frame: bytes) -> bytes:
+        frame = self._decoder.decode(frame, self.samples_per_frame)
         return frame
-        return self._decoder.decode(frame, self.samples_per_frame)
 
     def write_audio_frame(self, audio_data: bytes) -> bytes:
         self._io.write(self._client_id_encoded + self._encode_frame(audio_data))
         return audio_data
 
     def _read_audio_frame(self) -> bytes:
-        return self._io.read()
+        return self._decode_frame(self._io.read())
 
     def start_receiving(self):
         self._recv_thread.start()
@@ -86,14 +86,18 @@ class UdpAudioClient:
         return f'{self.__class__.__name__}: Sapmle rate: {self.sample_rate / 1000} kHz, {ch_str}, {self.samples_per_frame} samples per frame. Backing IO is {self._io.__class__.__name__}.'
 
 
-manager_responses = {b'AudioParams': 'json',
-                     b'Auth': 'int',
-                     b'Name': '',
-                     b'Join': '',
-                     b'List': 'json',
-                     b'Leave': '',
-                     b'Start': '',
-                     b'Stop': ''}
+neutral_responses = {b'AudioParams'}
+
+responses = {b'Auth', b'Name', b'Join', b'List', b'Leave', b'Start', b'Stop'}
+
+payload_decoders = {b'AudioParams': 'json',
+                    b'AuthOk': 'int',
+                    b'ListOk': 'json',
+                    b'Name': 'int+str',
+                    b'JoinedChannel': 'int',
+                    b'LeftChannel': 'int',
+                    b'StartedTalking': 'int',
+                    b'StoppedTalking': 'int'}
 
 
 class TcpManagerClient:
@@ -113,9 +117,9 @@ class TcpManagerClient:
         if events_callback:
             self._events_thread = threading.Thread(target=self._event_loop)
             self._events_thread.daemon = True
-            self._event_thread.start()
+            self._events_thread.start()
 
-    def _decode_payload(self, decoder: str, payload: bytes) -> Union[None, str, dict, list, int]:
+    def _decode_payload(self, decoder: str, payload: bytes) -> Union[None, str, dict, list, int, Tuple[int, str]]:
         if not payload:
             return
 
@@ -124,6 +128,9 @@ class TcpManagerClient:
 
         if decoder == 'int':
             return int.from_bytes(payload, 'big')
+
+        if decoder == 'int+str':
+            return int.from_bytes(payload[:2], 'big'), payload[2:].decode()
 
         return payload.decode()
 
@@ -134,22 +141,18 @@ class TcpManagerClient:
         frame = self._sock.recv(frame_size)                     # Frame data
         command, payload = frame[1:frame[0] + 1], frame[frame[0] + 1:]
 
-        is_response = True
-        if command in manager_responses:
-            decoder = manager_responses[command]
-        elif command.endswith(b'Ok') and command[:-2] in manager_responses:
-            decoder = manager_responses[command[:-2]]
-        elif command.startswith(b'Bad') and command[3:] in manager_responses:
-            decoder = manager_responses[command[3:]]
+        if (command in neutral_responses) \
+        or (command.endswith(b'Ok') and command[:-2] in responses) \
+        or (command.startswith(b'Bad') and command[3:] in responses):
+            is_response = True
         else:
             is_response = False
-            decoder = 'int'
+
+        decoder = payload_decoders.get(command, '')
 
         payload = self._decode_payload(decoder, payload)
 
         (self._response_queue if is_response else self._event_queue).put((command, payload))
-
-        #print('<--', (command, payload))
 
     def _main_loop(self) -> None:
         while 1:
@@ -169,7 +172,6 @@ class TcpManagerClient:
             payload = payload.encode()
         self._sock.send((1 + len(command) + len(payload)).to_bytes(3, 'big'))  # Frame size
         self._sock.send(len(command).to_bytes(1, 'big') + command + payload)   # Frame data
-        #print('-->', (command, payload))
 
     def _read_response(self) -> Tuple[bytes, Union[None, dict, list, int]]:
         return self._response_queue.get()
@@ -219,6 +221,7 @@ def main():
     p.add_argument('-s', '--server-ip', default='127.0.0.1')
     p.add_argument('-k', '--server-key', default=SERVER_KEY)
     p.add_argument('-n', '--name', required=True)
+    p.add_argument('--mute', action='store_true')
     args = p.parse_args()
 
     print('Hello')
@@ -230,7 +233,7 @@ def main():
 
     print(f'Using {"PTT" if ptt_key is not None else "Vox"} filter.')
 
-    manager_client = TcpManagerClient(args.server_ip)
+    manager_client = TcpManagerClient(args.server_ip, events_callback=print)
 
     print('Getting audio parameters from server...', end='')
     audio_params = manager_client.request(b'GetAudioParams')[1]
@@ -247,7 +250,7 @@ def main():
     print(f'My client ID is {client_id}')
 
     print('Initialising audio system...', end='')
-    audio = Audio(input_needed=True, output_needed=True, **audio_params)
+    audio = Audio(input_needed=not args.mute, output_needed=True, **audio_params)
     network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=audio.playback, **audio_params)
     audio.add_callback(network_stream.write_audio_frame)
     _tx_filter = VoxAudioInputFilter(audio) if ptt_key is None else PushToTalkAudioInputFilter(audio, ptt_key)
@@ -285,7 +288,9 @@ def main():
 
     print()
     print('Start.')
-    audio.start_capture()
+    network_stream._io.write(network_stream._client_id_encoded)
+    if not args.mute:
+        audio.start_capture()
     network_stream.start_receiving()
 
     try:
