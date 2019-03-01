@@ -22,11 +22,11 @@ def udp_audio_loop():
 
     while 1:
         frame, rx_addr_info = rx_sock.recvfrom(1024)
-        client_id, audio_data = int.from_bytes(frame[:2], 'big'), frame[2:]
+        client_id = int.from_bytes(frame[:2], 'big')
 
         for tx_addr_info in client_manager.audio_received(client_id, rx_addr_info):
             try:
-                tx_sock.sendto(audio_data, tx_addr_info)
+                tx_sock.sendto(frame, tx_addr_info)
             except Exception:
                 pass
 
@@ -66,7 +66,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
             return None, None
         frame = self.request.recv(frame_size)                     # Frame data
         command, payload_bytes = frame[1:frame[0] + 1], frame[frame[0] + 1:]
-        print('<--', command, payload_bytes)
+        print(f'{"???" if self._client_id is None else self._client_id:3} <-- {command.decode()} {payload_bytes}')
         return command, payload_bytes.decode() if payload_bytes else None
 
     def write_frame(self, command: bytes, payload: bytes=None) -> None:
@@ -75,7 +75,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         elif isinstance(payload, str):
             payload = payload.encode()
         self.request.send((1 + len(command) + len(payload)).to_bytes(3, 'big'))  # Frame size
-        print('-->', (command, payload))
+        print(f'{"???" if self._client_id is None else self._client_id:3} --> {command.decode()} {payload}')
         self.request.send(len(command).to_bytes(1, 'big') + command + payload)   # Frame data
 
     def handle_GetAudioParams(self, payload: str) -> Tuple[bytes, str]:
@@ -116,20 +116,6 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         else:
             success, payload = client_manager.leave_channel(self._client_id)
         return (b'LeaveOk' if success else b'BadLeave', payload)
-
-    def handle_StartTalking(self, payload: str) -> Tuple[bytes, str]:
-        if self._client_id is None:
-            success, payload = False, 'Not authenticated'
-        else:
-            success, payload = client_manager.client_started_talking(self._client_id)
-        return (b'StartOk' if success else b'BadStart', payload)
-
-    def handle_StopTalking(self, payload: str) -> Tuple[bytes, str]:
-        if self._client_id is None:
-            success, payload = False, 'Not authenticated'
-        else:
-            success, payload = client_manager.client_stopped_talking(self._client_id)
-        return (b'StopOk' if success else b'BadStop', payload)
 
 
 class Client:
@@ -217,18 +203,6 @@ class ClientManager:
             return False, 'Not in channel'
         c.in_channel = False
         self._broadcast(client_id, b'LeftChannel')
-        return True, None
-
-    def client_started_talking(self, client_id: int) -> Tuple[bool, str]:
-        if not self._clients[client_id].in_channel:
-            return False, 'Not in channel'
-        self._broadcast(client_id, b'StartedTalking')
-        return True, None
-
-    def client_stopped_talking(self, client_id: int) -> Tuple[bool, str]:
-        if not self._clients[client_id].in_channel:
-            return False, 'Not in channel'
-        self._broadcast(client_id, b'StoppedTalking')
         return True, None
 
     def audio_received(self, client_id: int, addr_info: Tuple[str, int]) -> Iterable[Tuple[str, int]]:

@@ -28,7 +28,7 @@ class UdpSocketIO(socket.socket):
 
 
 class UdpAudioClient:
-    def __init__(self, _io, client_id: int, sample_rate: int, channels: int, samples_per_frame: int, callback: Callable[[bytes], None]):
+    def __init__(self, _io, client_id: int, sample_rate: int, channels: int, samples_per_frame: int, callback: Callable[[int, bytes], None]):
         self._io = _io
 
         self._client_id = client_id
@@ -53,25 +53,26 @@ class UdpAudioClient:
     def _recv_thread_func(self):
         while not self._stop:
             try:
-                self._callback(self._read_audio_frame())
+                self._callback(*self._read_audio_frame())
             except Exception as e:
                 raise
                 print(f'ERROR! {e.__class__.__name__}: {e}')
 
-    def _encode_frame(self, frame: bytes) -> bytes:
+    def _encode_audio_frame(self, frame: bytes) -> bytes:
         frame = self._encoder.encode(frame, self.samples_per_frame)
         return frame
 
-    def _decode_frame(self, frame: bytes) -> bytes:
+    def _decode_audio_frame(self, frame: bytes) -> bytes:
         frame = self._decoder.decode(frame, self.samples_per_frame)
         return frame
 
     def write_audio_frame(self, audio_data: bytes) -> bytes:
-        self._io.write(self._client_id_encoded + self._encode_frame(audio_data))
+        self._io.write(self._client_id_encoded + self._encode_audio_frame(audio_data))
         return audio_data
 
-    def _read_audio_frame(self) -> bytes:
-        return self._decode_frame(self._io.read())
+    def _read_audio_frame(self) -> Tuple[int, bytes]:
+        packet = self._io.read()
+        return int.from_bytes(packet[:2], 'big'), self._decode_audio_frame(packet[2:])
 
     def start_receiving(self):
         self._recv_thread.start()
@@ -95,9 +96,7 @@ payload_decoders = {b'AudioParams': 'json',
                     b'ListOk': 'json',
                     b'Name': 'int+str',
                     b'JoinedChannel': 'int',
-                    b'LeftChannel': 'int',
-                    b'StartedTalking': 'int',
-                    b'StoppedTalking': 'int'}
+                    b'LeftChannel': 'int'}
 
 
 class TcpManagerClient:
@@ -142,8 +141,8 @@ class TcpManagerClient:
         command, payload = frame[1:frame[0] + 1], frame[frame[0] + 1:]
 
         if (command in neutral_responses) \
-        or (command.endswith(b'Ok') and command[:-2] in responses) \
-        or (command.startswith(b'Bad') and command[3:] in responses):
+                or (command.endswith(b'Ok') and command[:-2] in responses) \
+                or (command.startswith(b'Bad') and command[3:] in responses):
             is_response = True
         else:
             is_response = False
@@ -214,6 +213,12 @@ def tx_status_callback(frame):
     return frame
 
 
+def get_network_stream_callback(audio):
+    def network_stream_callback(client_id, frame):
+        audio.playback(frame)
+    return network_stream_callback
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('-p', '--push-to-talk', action='store_true')
@@ -251,7 +256,7 @@ def main():
 
     print('Initialising audio system...', end='')
     audio = Audio(input_needed=not args.mute, output_needed=True, **audio_params)
-    network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=audio.playback, **audio_params)
+    network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=get_network_stream_callback(audio), **audio_params)
     audio.add_callback(network_stream.write_audio_frame)
     _tx_filter = VoxAudioInputFilter(audio) if ptt_key is None else PushToTalkAudioInputFilter(audio, ptt_key)
     #audio.add_callback(tx_status_callback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
