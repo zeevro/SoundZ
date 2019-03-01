@@ -1,6 +1,5 @@
 ﻿from typing import Tuple, Union, Callable
 from soundz_audio import Audio, VoxAudioInputFilter, PushToTalkAudioInputFilter, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL
-import opuslib
 import threading
 import time
 import argparse
@@ -8,6 +7,21 @@ import pynput
 import socket
 import json
 import queue
+import os
+import sys
+
+
+if hasattr(sys, 'frozen'):
+    os.environ['PATH'] = sys._MEIPASS + os.pathsep + os.environ['PATH']
+
+
+try:
+    import opuslib
+except ImportError:
+    # Help poor opuslib to fine opus.dll
+    if os.name == 'nt':
+        os.environ['PATH'] = '.' + os.pathsep + os.environ['PATH']
+    import opuslib
 
 
 SERVER_PORT = 4452

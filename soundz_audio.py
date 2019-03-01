@@ -1,6 +1,5 @@
 ﻿import pyaudio
 import io
-import socket
 import audioop
 import time
 
