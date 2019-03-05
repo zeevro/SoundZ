@@ -1,4 +1,5 @@
-from pyaudio import PyAudio, paInt16, paContinue
+from pyaudio import PyAudio, paInt16, paContinue, get_sample_size
+import audioop
 import time
 
 
@@ -11,16 +12,24 @@ SAMPLE_RATE = 48000
 CHANNELS = 1
 SAMPLE_FORMAT = paInt16
 
+sample_width = get_sample_size(SAMPLE_FORMAT)
+volume_factor = 1.0  # Comfort effective range is between 0.5 and 3
+
+
+def audio_stream_callback(in_data, frame_count, time_info, status_flags):
+    global volume_factor
+    frame = audioop.mul(in_data, sample_width, volume_factor)
+    return (frame, paContinue)
+
 
 def main():
-    def callback(in_data, frame_count, time_info, status_flags):
-        return(in_data, paContinue)
-
-    PyAudio().open(SAMPLE_RATE, CHANNELS, SAMPLE_FORMAT, input=True, output=True, stream_callback=callback, start=True)
+    global volume_factor
+    PyAudio().open(SAMPLE_RATE, CHANNELS, SAMPLE_FORMAT, input=True, output=True, stream_callback=audio_stream_callback, start=True)
 
     try:
         while 1:
-            time.sleep(10)
+            volume_factor = float(input('Volume factor: '))
+            #time.sleep(10)
     except (KeyboardInterrupt, SystemExit):
         pass
 

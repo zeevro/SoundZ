@@ -1,27 +1,25 @@
 ﻿from typing import Tuple, Union, Callable
-from soundz_audio import Audio, VoxAudioInputFilter, PushToTalkAudioInputFilter, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL
+import argparse
+import audioop
+import json
+import os
+import queue
+import socket
+import sys
 import threading
 import time
-import argparse
-import pynput
-import socket
-import json
-import queue
-import os
-import sys
 
+from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
 
-if hasattr(sys, 'frozen'):
-    os.environ['PATH'] = sys._MEIPASS + os.pathsep + os.environ['PATH']
-
+# Help opuslib find opus.dll
+os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']
+import opuslib
 
 try:
-    import opuslib
+    import pynput
+    _have_pynput = True
 except ImportError:
-    # Help poor opuslib to fine opus.dll
-    if os.name == 'nt':
-        os.environ['PATH'] = '.' + os.pathsep + os.environ['PATH']
-    import opuslib
+    _have_pynput = False
 
 
 SERVER_PORT = 4452
@@ -101,20 +99,19 @@ class UdpAudioClient:
         return f'{self.__class__.__name__}: Sapmle rate: {self.sample_rate / 1000} kHz, {ch_str}, {self.samples_per_frame} samples per frame. Backing IO is {self._io.__class__.__name__}.'
 
 
-neutral_responses = {b'AudioParams'}
-
-responses = {b'Auth', b'Name', b'Join', b'List', b'Leave', b'Start', b'Stop'}
-
-payload_decoders = {b'AudioParams': 'json',
-                    b'AuthOk': 'int',
-                    b'ListOk': 'json',
-                    b'Name': 'int+str',
-                    b'JoinedChannel': 'int',
-                    b'LeftChannel': 'int'}
-
-
 class TcpManagerClient:
-    def __init__(self, server_ip: str, events_callback: Callable[[bytes, int], None]=None):
+    neutral_responses = {b'AudioParams'}
+
+    responses = {b'Auth', b'Name', b'Join', b'List', b'Leave', b'Start', b'Stop'}
+
+    payload_decoders = {b'AudioParams': 'json',
+                        b'AuthOk': 'int',
+                        b'ListOk': 'json',
+                        b'Name': 'int+str',
+                        b'JoinedChannel': 'int',
+                        b'LeftChannel': 'int'}
+
+    def __init__(self, server_ip: str, events_callback: Callable[[bytes, int], None] = None):
         self._server_ip = server_ip
         self._sock = socket.socket()
         self._sock.connect((server_ip, SERVER_PORT))
@@ -154,18 +151,15 @@ class TcpManagerClient:
         frame = self._sock.recv(frame_size)                     # Frame data
         command, payload = frame[1:frame[0] + 1], frame[frame[0] + 1:]
 
-        if (command in neutral_responses) \
-                or (command.endswith(b'Ok') and command[:-2] in responses) \
-                or (command.startswith(b'Bad') and command[3:] in responses):
-            is_response = True
-        else:
-            is_response = False
-
-        decoder = payload_decoders.get(command, '')
-
+        decoder = self.payload_decoders.get(command, '')
         payload = self._decode_payload(decoder, payload)
 
-        (self._response_queue if is_response else self._event_queue).put((command, payload))
+        if (command in self.neutral_responses) or (command.endswith(b'Ok') and command[:-2] in self.responses):
+            self._response_queue.put((True, payload))
+        elif command.startswith(b'Bad') and command[3:] in self.responses:
+            self._response_queue.put((False, payload))
+        else:
+            self._event_queue.put((command, payload))
 
     def _main_loop(self) -> None:
         while 1:
@@ -178,7 +172,7 @@ class TcpManagerClient:
             except Exception:
                 pass
 
-    def _write_frame(self, command: bytes, payload: Union[bytes, str]=None) -> None:
+    def _write_frame(self, command: bytes, payload: Union[bytes, str] = None) -> None:
         if payload is None:
             payload = b''
         elif isinstance(payload, str):
@@ -189,7 +183,7 @@ class TcpManagerClient:
     def _read_response(self) -> Tuple[bytes, Union[None, dict, list, int]]:
         return self._response_queue.get()
 
-    def request(self, command: bytes, payload: str=None) -> Tuple[bytes, Union[None, dict, list, int]]:
+    def request(self, command: bytes, payload: str = None) -> Tuple[bytes, Union[None, dict, list, int]]:
         self._write_frame(command, payload)
         return self._read_response()
 
@@ -197,29 +191,86 @@ class TcpManagerClient:
         return self._event_queue.get(block, timeout)
 
 
-def get_ptt_key():
-    print('Press the key you wish to use for PTT. Press ESC to cancel.')
+class User:
+    def __init__(self, client_id, name):
+        self.client_id = client_id
+        self.name = name
+        self.in_channel = False
 
-    key_l = []
 
-    def on_press(key):
-        print(f'on_press({key})')
-        key_l.append(key)
-        return False
+class SoundZError(Exception):
+    pass
 
-    keyboard_listener = pynput.keyboard.Listener(on_press=on_press, suppress=True)
-    keyboard_listener.start()
-    keyboard_listener.join()
 
-    selected_key, = key_l
+class SoundZClient:
+    SERVER_PORT = 4452
+    SERVER_KEY = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
-    if selected_key == pynput.keyboard.Key.esc:
-        print('Cancelled.')
-        return None
+    def __init__(self, server_ip, name):
+        self._name = name
+        self._client_id
 
-    print(f'{selected_key} was selected.')
+        self._tcp_manager = TcpManagerClient(server_ip, self._events_callback)
+        self._udp_stream = None
+        self._audio = None
 
-    return selected_key
+        self._audio_params = None
+
+    def _events_callback(self, command, payload):
+        pass
+
+    def _init_audio(self):
+        network_stream = UdpAudioClient(UdpSocketIO(self.server_ip, self.SERVER_PORT), self._tcp_manager.client_id, callback=self._audio_callback, **self.audio_params)
+        self._audio = Audio(input_needed=True, output_needed=True, **self.audio_params).add_callback(network_stream.write_audio_frame)
+
+    @property
+    def audio_params(self):
+        if self._audio_params is None:
+            self._audio_params = self._tcp_manager.request(b'GetAudioParams')[
+                1]
+        return self._audio_params
+
+    def start(self):
+        success, payload = self._tcp_manager.request(b'Auth', self.SERVER_KEY)
+        if not success:
+            raise SoundZError(payload)
+        self._client_id = payload
+
+        success, payload = self._tcp_manager.request(b'SetName', self.name)
+        if not success:
+            raise SoundZError(payload)
+
+        self._init_audio()
+
+        success, payload = self._tcp_manager.request(b'JoinChannel')
+        if not success:
+            raise SoundZError(payload)
+
+
+if _have_pynput:
+    def get_ptt_key():
+        print('Press the key you wish to use for PTT. Press ESC to cancel.')
+
+        key_l = []
+
+        def on_press(key):
+            print(f'on_press({key})')
+            key_l.append(key)
+            return False
+
+        keyboard_listener = pynput.keyboard.Listener(on_press=on_press, suppress=True)
+        keyboard_listener.start()
+        keyboard_listener.join()
+
+        selected_key, = key_l
+
+        if selected_key == pynput.keyboard.Key.esc:
+            print('Cancelled.')
+            return None
+
+        print(f'{selected_key} was selected.')
+
+        return selected_key
 
 
 def tx_status_callback(frame):
@@ -227,9 +278,19 @@ def tx_status_callback(frame):
     return frame
 
 
-def get_network_stream_callback(audio):
-    def network_stream_callback(client_id, frame):
-        audio.playback(frame)
+def change_volume(frame):
+    pass
+
+
+def get_network_stream_callback(audio, volume_factor=None):
+    if volume_factor:
+        def network_stream_callback(client_id, frame):
+            #print(client_id, time.time())
+            audio.playback(audioop.mul(frame, audio.sample_size, volume_factor))
+    else:
+        def network_stream_callback(client_id, frame):
+            #print(client_id, time.time())
+            audio.playback(frame)
     return network_stream_callback
 
 
@@ -240,6 +301,8 @@ def main():
     p.add_argument('-s', '--server-ip', default='127.0.0.1')
     p.add_argument('-k', '--server-key', default=SERVER_KEY)
     p.add_argument('-n', '--name', required=True)
+    p.add_argument('-v', '--output-volume', type=float)
+    p.add_argument('-V', '--input-volume', type=float)
     p.add_argument('--mute', action='store_true')
     args = p.parse_args()
 
@@ -248,6 +311,9 @@ def main():
 
     ptt_key = None
     if args.push_to_talk:
+        if not _have_pynput:
+            print('You must install pynput to use the push-to-talk feature.')
+            return
         ptt_key = get_ptt_key()
 
     print(f'Using {"PTT" if ptt_key is not None else "Vox"} filter.')
@@ -259,8 +325,8 @@ def main():
     print(' OK')
 
     print('Authenticating to server...', end='')
-    command, payload = manager_client.request(b'Auth', SERVER_KEY)
-    if command != b'AuthOk':
+    success, payload = manager_client.request(b'Auth', SERVER_KEY)
+    if not success:
         print(' FAIL')
         print(f'Authentication process failed! {payload}')
         return
@@ -270,31 +336,33 @@ def main():
 
     print('Initialising audio system...', end='')
     audio = Audio(input_needed=not args.mute, output_needed=True, **audio_params)
-    network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=get_network_stream_callback(audio), **audio_params)
+    network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=get_network_stream_callback(audio, args.output_volume), **audio_params)
     audio.add_callback(network_stream.write_audio_frame)
     _tx_filter = VoxAudioInputFilter(audio) if ptt_key is None else PushToTalkAudioInputFilter(audio, ptt_key)
+    if args.input_volume:
+        _volume_changer = VolumeChangeAudioInput(audio, args.volume)
     #audio.add_callback(tx_status_callback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
     print(' OK')
 
     print('Setting your name...', end='')
-    command, payload = manager_client.request(b'SetName', args.name)
-    if command != b'NameOk':
+    success, payload = manager_client.request(b'SetName', args.name)
+    if not success:
         print(' FAIL')
         print(f'Setting name failed! {payload}')
         return
     print(' OK')
 
     print('Joining voice channel...', end='')
-    command, payload = manager_client.request(b'JoinChannel')
-    if command != b'JoinOk':
+    success, payload = manager_client.request(b'JoinChannel')
+    if not success:
         print(' FAIL')
         print(f'Join failed! {payload}')
         return
     print(' OK')
 
     print('Listing users in channel...', end='')
-    command, payload = manager_client.request(b'ListChannelUsers')
-    if command != b'ListOk':
+    success, payload = manager_client.request(b'ListChannelUsers')
+    if not success:
         print(' FAIL')
         print(f'Listing failed! {payload}')
         return

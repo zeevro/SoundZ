@@ -241,3 +241,20 @@ if _have_pynput:
                 self._listener.start()
                 self._listener_started = True
             return self._pressed
+else:
+    class PushToTalkAudioInputFilter:
+        def __init__(self, *a, **kw):
+            raise NotImplementedError()
+
+
+class AudioInputEffectBase(AudioInputCallbackBase):
+    callback_type = AUDIO_INPUT_CALLBACK_TYPE_EFFECT
+
+
+class VolumeChangeAudioInput(AudioInputEffectBase):
+    def __init__(self, audio, volume_factor=1.0):
+        super().__init__(audio)
+        self.volume_factor = volume_factor
+
+    def callback(self, frame):
+        return audioop.mul(frame, self._audio.sample_size, self.volume_factor)

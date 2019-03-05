@@ -8,25 +8,28 @@ import time
 
 SERVER_PORT = 4452
 
-AUDIO_PARAMS = {'sample_rate': 12000, 'channels': 1, 'samples_per_frame': 120}
+FRAME_RATE = 12000  # Can be 8000, 12000, 24000 or 48000 (see https://tools.ietf.org/html/rfc6716#section-2.1.3)
+CHANNELS = 1
+FRAME_DURATION_MS = 10  # Can be 2.5, 5, 10, 20, 40, or 60 (see https://tools.ietf.org/html/rfc6716#section-2.1.4)
+samples_per_frame = (FRAME_DURATION_MS * FRAME_RATE) // 1000
+
+AUDIO_PARAMS = {'sample_rate': FRAME_RATE, 'channels': CHANNELS, 'samples_per_frame': samples_per_frame}
 
 
 secret_key = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
 
 def udp_audio_loop():
-    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    rx_sock.bind(('0.0.0.0', SERVER_PORT))
-
-    tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.bind(('0.0.0.0', SERVER_PORT))
 
     while 1:
-        frame, rx_addr_info = rx_sock.recvfrom(1024)
+        frame, rx_addr_info = sock.recvfrom(1024)
         client_id = int.from_bytes(frame[:2], 'big')
 
         for tx_addr_info in client_manager.audio_received(client_id, rx_addr_info):
             try:
-                tx_sock.sendto(frame, tx_addr_info)
+                sock.sendto(frame, tx_addr_info)
             except Exception:
                 pass
 
@@ -103,7 +106,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
             success, payload = client_manager.join_channel(self._client_id, payload)
         return (b'JoinOk' if success else b'BadJoin', payload)
 
-    def handle_ListChannelUsers(self, payload: str):
+    def handle_ListChannelUsers(self, payload: str) -> Tuple[bytes, str]:
         if self._client_id is None:
             success, payload = False, 'Not authenticated'
         else:
@@ -168,6 +171,7 @@ class ClientManager:
         return True, new_id.to_bytes(2, 'big')
 
     def remove(self, client_id: int) -> Tuple[bool, str]:
+        self.leave_channel(client_id)
         if self._clients.pop(client_id, None) is None:
             return False, 'Nonexistent client id'
         return True, None
