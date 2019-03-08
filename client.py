@@ -9,11 +9,11 @@ import sys
 import threading
 import time
 
-from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
+from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter, DEFAULT_VOX_THRESHOLD
 
 # Help opuslib find opus.dll
 os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']  #pylint: disable=no-member
-import opuslib
+import opuslib  #pylint: disable=wrong-import-position
 
 try:
     import pynput
@@ -67,26 +67,24 @@ class UdpAudioClient:
             try:
                 self._callback(*self._read_audio_frame())
             except Exception as e:
-                raise
-                print(f'ERROR! {e.__class__.__name__}: {e}') #pylint: disable=unreachable
+                print(f'ERROR! {e.__class__.__name__}: {e}')
 
     def _encode_audio_frame(self, frame: bytes) -> bytes:
-        frame = self._encoder.encode(frame, self.samples_per_frame)
-        return frame
+        return self._encoder.encode(frame, self.samples_per_frame)
 
     def _decode_audio_frame(self, frame: bytes) -> bytes:
-        frame = self._decoder.decode(frame, self.samples_per_frame)
-        return frame
+        return self._decoder.decode(frame, self.samples_per_frame)
 
     def write_audio_frame(self, audio_data: bytes) -> bytes:
         self._io.write(self._client_id_encoded + self._encode_audio_frame(audio_data))
-        return audio_data
+        return audio_data  # Returning data to maintain Audio callback chain
 
     def _read_audio_frame(self) -> Tuple[int, bytes]:
         packet = self._io.read()
         return int.from_bytes(packet[:2], 'big'), self._decode_audio_frame(packet[2:])
 
     def start_receiving(self):
+        self.write_audio_frame(bytes(self.channels * self.samples_per_frame * 2))
         self._recv_thread.start()
 
     def __str__(self):
@@ -192,10 +190,19 @@ class TcpManagerClient:
 
 
 class User:
-    def __init__(self, client_id, name):
+    def __init__(self, client_id, name, audio_params, volume_factor=1.0):
         self.client_id = client_id
         self.name = name
         self.in_channel = False
+        self.volume_factor = volume_factor
+        self._audio_output = Audio(output_needed=True, **audio_params)
+
+    def play_audio(self, audio_data):
+        print(f'Playing audio from user {self.client_id}')
+        self._audio_output.playback(audioop.mul(audio_data, self._audio_output.sample_size, self.volume_factor))
+
+    def __del__(self):
+        self._audio_output.close()
 
 
 class SoundZError(Exception):
@@ -203,29 +210,57 @@ class SoundZError(Exception):
 
 
 class SoundZClient:
+    '''Not in use yet'''
+
     SERVER_PORT = 4452
     SERVER_KEY = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
-    def __init__(self, server_ip, name):
+    def __init__(self, server_ip, name, output_volume_factor=1.0, input_volume_factor=1.0):
         self.server_ip = server_ip
         self._name = name
+        self._output_volume_factor = output_volume_factor
+        self.input_volume_factor = input_volume_factor  # TODO: Actually implement using VolumeChangeAudioInput
         self._client_id = None
 
         self._tcp_manager = TcpManagerClient(server_ip, self._events_callback)
         self._udp_stream = None
-        self._audio = None
+        self._audio_input = None
+
+        self._users = {}
 
         self._audio_params = None
 
+    @property
+    def audio_input(self):
+        return self._audio_input
+
+    @property
+    def volume_factor(self):
+        return self._output_volume_factor
+
+    @volume_factor.setter
+    def set_volume_factor(self, new_value):
+        for user in self._users.values():
+            user.volume_factor = user.volume_factor / self._output_volume_factor * new_value
+        self._output_volume_factor = new_value
+
     def _events_callback(self, command, payload):
-        pass
+        if command == b'Name':
+            client_id, name = payload
+            self._users[client_id] = User(client_id, name, self._audio_params, self._output_volume_factor)  # TODO: Remember user volume settings
+        elif command == b'JoinedChannel':
+            self._users[payload].in_channel = True
+        elif command == b'LeftChannel':
+            self._users[payload].in_channel = False
 
     def _audio_callback(self, client_id, frame):
-        pass
+        self._users[client_id].play_audio(frame)
 
     def _init_audio(self):
-        network_stream = UdpAudioClient(UdpSocketIO(self.server_ip, self.SERVER_PORT), self._client_id, callback=self._audio_callback, **self.audio_params)
-        self._audio = Audio(input_needed=True, output_needed=True, **self.audio_params).add_callback(network_stream.write_audio_frame)
+        self._udp_stream = UdpAudioClient(UdpSocketIO(self.server_ip, self.SERVER_PORT), self._client_id, callback=self._audio_callback, **self.audio_params)
+        self._udp_stream.start_receiving()
+        self._audio_input = Audio(input_needed=True, **self.audio_params).add_callback(self._udp_stream.write_audio_frame)
+        self._audio_input.start_capture()
 
     @property
     def audio_params(self):
@@ -242,6 +277,11 @@ class SoundZClient:
         success, payload = self._tcp_manager.request(b'SetName', self._name)
         if not success:
             raise SoundZError(payload)
+
+        success, payload = self._tcp_manager.request(b'ListChannelUsers')
+        if not success:
+            raise SoundZError(payload)
+        self._users = {client_id: User(client_id, name, self.audio_params) for client_id, name in payload}  # TODO: Remember user volume factor
 
         self._init_audio()
 
@@ -276,27 +316,6 @@ if _have_pynput:
         return selected_key
 
 
-def tx_status_callback(frame):
-    print('TX' if frame else '  ', end='\r')
-    return frame
-
-
-def change_volume(frame):
-    pass
-
-
-def get_network_stream_callback(audio, volume_factor=None):
-    if volume_factor:
-        def network_stream_callback(client_id, frame):
-            #print(client_id, time.time())
-            audio.playback(audioop.mul(frame, audio.sample_size, volume_factor))
-    else:
-        def network_stream_callback(client_id, frame):
-            #print(client_id, time.time())
-            audio.playback(frame)
-    return network_stream_callback
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('-p', '--push-to-talk', action='store_true')
@@ -304,8 +323,9 @@ def main():
     p.add_argument('-s', '--server-ip', default='127.0.0.1')
     p.add_argument('-k', '--server-key', default=SERVER_KEY)
     p.add_argument('-n', '--name', required=True)
-    p.add_argument('-v', '--output-volume', type=float)
-    p.add_argument('-V', '--input-volume', type=float)
+    p.add_argument('-v', '--output-volume', type=float, default=1.0)
+    p.add_argument('-V', '--input-volume', type=float, default=1.0)
+    p.add_argument('-x', '--vox-threshold', type=int, default=DEFAULT_VOX_THRESHOLD)
     p.add_argument('--mute', action='store_true')
     args = p.parse_args()
 
@@ -321,67 +341,11 @@ def main():
 
     print(f'Using {"PTT" if ptt_key is not None else "Vox"} filter.')
 
-    manager_client = TcpManagerClient(args.server_ip, events_callback=print)
-
-    print('Getting audio parameters from server...', end='')
-    audio_params = manager_client.request(b'GetAudioParams')[1]
-    print(' OK')
-
-    print('Authenticating to server...', end='')
-    success, payload = manager_client.request(b'Auth', SERVER_KEY)
-    if not success:
-        print(' FAIL')
-        print(f'Authentication process failed! {payload}')
-        return
-    client_id = payload
-    print(' OK')
-    print(f'My client ID is {client_id}')
-
-    print('Initialising audio system...', end='')
-    audio = Audio(input_needed=not args.mute, output_needed=True, **audio_params)
-    network_stream = UdpAudioClient(UdpSocketIO(args.server_ip, args.server_port), client_id, callback=get_network_stream_callback(audio, args.output_volume), **audio_params)
-    audio.add_callback(network_stream.write_audio_frame)
-    _tx_filter = VoxAudioInputFilter(audio) if ptt_key is None else PushToTalkAudioInputFilter(audio, ptt_key)
+    soundz_client = SoundZClient(args.server_ip, args.name)
+    soundz_client.start()
+    _tx_filter = VoxAudioInputFilter(soundz_client.audio_input) if ptt_key is None else PushToTalkAudioInputFilter(soundz_client.audio_input, ptt_key)
     if args.input_volume:
-        _volume_changer = VolumeChangeAudioInput(audio, args.volume)
-    #audio.add_callback(tx_status_callback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
-    print(' OK')
-
-    print('Setting your name...', end='')
-    success, payload = manager_client.request(b'SetName', args.name)
-    if not success:
-        print(' FAIL')
-        print(f'Setting name failed! {payload}')
-        return
-    print(' OK')
-
-    print('Joining voice channel...', end='')
-    success, payload = manager_client.request(b'JoinChannel')
-    if not success:
-        print(' FAIL')
-        print(f'Join failed! {payload}')
-        return
-    print(' OK')
-
-    print('Listing users in channel...', end='')
-    success, payload = manager_client.request(b'ListChannelUsers')
-    if not success:
-        print(' FAIL')
-        print(f'Listing failed! {payload}')
-        return
-    print(' OK')
-
-    print()
-    print('User list:')
-    for user in payload:
-        print(user)
-
-    print()
-    print('Start.')
-    network_stream._io.write(network_stream._client_id_encoded)
-    if not args.mute:
-        audio.start_capture()
-    network_stream.start_receiving()
+        _volume_changer = VolumeChangeAudioInput(soundz_client.audio_input, args.input_volume)
 
     try:
         while 1:

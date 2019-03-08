@@ -109,4 +109,8 @@ venv.bak/
 etc/
 old/
 *.sndz
+*.spec
+build/
+dist/
+etc/
 opus.dll

@@ -1,5 +1,6 @@
 ﻿from typing import Tuple, Iterable
 from socketserver import ThreadingTCPServer, StreamRequestHandler
+from collections import deque
 import threading
 import socket
 import json
@@ -21,7 +22,12 @@ secret_key = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
 def udp_audio_loop():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('0.0.0.0', SERVER_PORT))
+
+    tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tx_sock.bind(('0.0.0.0', SERVER_PORT))
 
     while 1:
         frame, rx_addr_info = sock.recvfrom(1024)
@@ -29,13 +35,14 @@ def udp_audio_loop():
 
         for tx_addr_info in client_manager.audio_received(client_id, rx_addr_info):
             try:
-                sock.sendto(frame, tx_addr_info)
+                tx_sock.sendto(frame, tx_addr_info)
             except Exception:
                 pass
 
 
 class ClientManagerRequestHandler(StreamRequestHandler):
     def setup(self):
+        super().setup()
         self._client_id = None
 
     def handle(self):
@@ -127,6 +134,12 @@ class Client:
         self.name = None
         self.in_channel = False
         self.udp_addr_info = None
+        #self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        #self.udp_socket.setsockopt(socket.SO_REUSEADDR)
+        #self.udp_socket.bind(('0.0.0.0', SERVER_PORT))
+
+    #def start(self):
+    #    pass
 
 
 class ClientManager:
@@ -214,6 +227,7 @@ class ClientManager:
             if cid == client_id:
                 c.udp_addr_info = addr_info
                 continue
+            #c.udp_socket.send()
             yield c.udp_addr_info
 
 

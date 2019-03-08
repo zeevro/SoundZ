@@ -55,7 +55,7 @@ class Audio:
 
         self.callback_chain = []
 
-    def _input_callback(self, in_data, frame_count, time_info, status_flags):
+    def _input_callback(self, in_data, _frame_count, _time_info, _status_flags):
         buf = io.BytesIO(in_data)
         while 1:
             frame = buf.read(self.frame_bytes)
@@ -110,7 +110,7 @@ class Audio:
         return self
 
     def start_capture(self):
-        assert len(self.callback_chain) > 0, 'No input callbacks'
+        assert self.callback_chain, 'No input callbacks'
         self.initialize()
         self._input_stream.start_stream()
         return self
@@ -156,7 +156,7 @@ class AudioInputCallbackBase:
         audio.add_callback(self.callback, self.callback_type)
 
     def callback(self, frame):
-        raise NotImplemented()
+        return frame
 
 
 class AudioInputKeepAlive(AudioInputCallbackBase):
@@ -191,7 +191,7 @@ class AudioInputFilterBase(AudioInputCallbackBase):
             return frame
 
     def filter(self, frame):
-        raise NotImplemented()
+        raise NotImplementedError()
 
 
 class VoxAudioInputFilter(AudioInputFilterBase):
