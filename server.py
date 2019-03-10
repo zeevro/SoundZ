@@ -230,14 +230,18 @@ class UDPServer:
         tx_sock.bind(('0.0.0.0', SERVER_PORT))
 
         while 1:
-            frame, rx_addr_info = sock.recvfrom(1024)
+            try:
+                frame, rx_addr_info = sock.recvfrom(1024)
+            except ConnectionError:
+                continue
             client_id = int.from_bytes(frame[:2], 'big')
 
             for tx_addr_info in self.client_manager.audio_received(client_id, rx_addr_info):
-                try:
-                    tx_sock.sendto(frame, tx_addr_info)
-                except Exception as e:
-                    print(f'ERROR in udp_audio_loop! {e.__class__.__name__}: {e}')
+                if tx_addr_info is not None:
+                    try:
+                        tx_sock.sendto(frame, tx_addr_info)
+                    except Exception as e:
+                        print(f'ERROR in UDPServer! {e.__class__.__name__}: {e}')
 
 
 def main():
