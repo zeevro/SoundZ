@@ -1,7 +1,8 @@
-﻿import pyaudio
-import io
+﻿import io
 import audioop
 import time
+import pyaudio
+from operator import itemgetter
 
 
 try:
@@ -87,7 +88,7 @@ class Audio:
                                                   channels=self.channels,
                                                   rate=self.sample_rate,
                                                   input=True,
-                                                  frames_per_buffer=self.samples_per_frame,  # TODO: Figure this out
+                                                  frames_per_buffer=self.samples_per_frame,
                                                   input_device_index=self._audio.get_default_input_device_info()['index'],
                                                   stream_callback=self._input_callback)
 
@@ -106,7 +107,7 @@ class Audio:
         else:
             func = callback
         self.callback_chain.append((callback_type, func))
-        self.callback_chain.sort()
+        self.callback_chain.sort(key=itemgetter(0))
         return self
 
     def start_capture(self):
