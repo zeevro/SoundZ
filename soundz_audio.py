@@ -35,6 +35,9 @@ AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT = 4
 sample_format_names = {getattr(pyaudio, f'pa{name}'): name for name in ['Int8', 'UInt8', 'Int16', 'Int24', 'Int32', 'Float32']}
 
 
+g_pyaudio = pyaudio.PyAudio()
+
+
 class Audio:
     def __init__(self, input_needed=False, output_needed=False,
                  sample_rate=DEFAULT_SAMPLE_RATE, channels=DEFAULT_CHANNELS,
@@ -50,7 +53,6 @@ class Audio:
         self._input_needed = input_needed
         self._output_needed = output_needed
 
-        self._audio = None
         self._input_stream = None
         self._output_stream = None
 
@@ -68,7 +70,7 @@ class Audio:
                         break
                     frame = func(frame or b'')
                 except Exception as e:
-                    print(f'{e.__class__.__name__}: {e}')
+                    print(f'ERROR in Audio.callback! {e.__class__.__name__}: {e}')
         return (None, 0)
 
     def get_params_from_stream(self, soundz):
@@ -80,25 +82,22 @@ class Audio:
         return self
 
     def initialize(self):
-        if self._audio is None:
-            self._audio = pyaudio.PyAudio()
-
         if self._input_needed and self._input_stream is None:
-            self._input_stream = self._audio.open(format=self.sample_format,
-                                                  channels=self.channels,
-                                                  rate=self.sample_rate,
-                                                  input=True,
-                                                  frames_per_buffer=self.samples_per_frame,
-                                                  input_device_index=self._audio.get_default_input_device_info()['index'],
-                                                  stream_callback=self._input_callback)
+            self._input_stream = g_pyaudio.open(format=self.sample_format,
+                                                channels=self.channels,
+                                                rate=self.sample_rate,
+                                                input=True,
+                                                frames_per_buffer=self.samples_per_frame,
+                                                input_device_index=g_pyaudio.get_default_input_device_info()['index'],
+                                                stream_callback=self._input_callback)
 
         if self._output_needed and self._output_stream is None:
-            self._output_stream = self._audio.open(format=self.sample_format,
-                                                   channels=self.channels,
-                                                   rate=self.sample_rate,
-                                                   output=True,
-                                                   frames_per_buffer=self.samples_per_frame,
-                                                   input_device_index=self._audio.get_default_output_device_info()['index'])
+            self._output_stream = g_pyaudio.open(format=self.sample_format,
+                                                 channels=self.channels,
+                                                 rate=self.sample_rate,
+                                                 output=True,
+                                                 frames_per_buffer=self.samples_per_frame,
+                                                 input_device_index=g_pyaudio.get_default_output_device_info()['index'])
 
     def add_callback(self, callback, callback_type=AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT):
         if hasattr(callback, 'callback_type') and hasattr(callback, 'callback') and callable(callback.callback):
@@ -136,10 +135,6 @@ class Audio:
                 self._input_stream.stop_stream()
             self._input_stream.close()
             self._input_stream = None
-
-        if self._audio is not None:
-            self._audio.terminate()
-            self._audio = None
 
     def __enter__(self):
         self.initialize()
