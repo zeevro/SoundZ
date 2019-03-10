@@ -1,4 +1,4 @@
-﻿from typing import Tuple, Union, Callable
+﻿from typing import Tuple, Union, Callable, Any
 import argparse
 import audioop
 import json
@@ -12,8 +12,8 @@ import time
 from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter, DEFAULT_VOX_THRESHOLD
 
 # Help opuslib find opus.dll
-os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']  #pylint: disable=no-member
-import opuslib  #pylint: disable=wrong-import-position
+os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']  #pylint: disable=no-member,protected-access
+import opuslib  #pylint: disable=wrong-import-position,wrong-import-order
 
 try:
     import pynput
@@ -67,7 +67,7 @@ class UdpAudioClient:
             try:
                 self._callback(*self._read_audio_frame())
             except Exception as e:
-                print(f'ERROR! {e.__class__.__name__}: {e}')
+                print(f'ERROR UdpAudioClient.callback! {e.__class__.__name__}: {e}')
 
     def _encode_audio_frame(self, frame: bytes) -> bytes:
         return self._encoder.encode(frame, self.samples_per_frame)
@@ -80,7 +80,10 @@ class UdpAudioClient:
         return audio_data  # Returning data to maintain Audio callback chain
 
     def _read_audio_frame(self) -> Tuple[int, bytes]:
-        packet = self._io.read()
+        try:
+            packet = self._io.read()
+        except ConnectionError:
+            pass
         return int.from_bytes(packet[:2], 'big'), self._decode_audio_frame(packet[2:])
 
     def start_receiving(self):
@@ -109,7 +112,7 @@ class TcpManagerClient:
                         b'JoinedChannel': 'int',
                         b'LeftChannel': 'int'}
 
-    def __init__(self, server_ip: str, events_callback: Callable[[bytes, int], None] = None):
+    def __init__(self, server_ip: str, events_callback: Callable[[bytes, Any], None] = None):
         self._server_ip = server_ip
         self._sock = socket.socket()
         self._sock.connect((server_ip, SERVER_PORT))
@@ -167,8 +170,9 @@ class TcpManagerClient:
         while 1:
             try:
                 self._events_callback(*self.get_event())
-            except Exception:
-                pass
+            except Exception as e:
+                print(f'ERROR in TcpManagerClient.events_callback! {e.__class__.__name__}: {e}')
+                raise
 
     def _write_frame(self, command: bytes, payload: Union[bytes, str] = None) -> None:
         if payload is None:
@@ -190,19 +194,28 @@ class TcpManagerClient:
 
 
 class User:
-    def __init__(self, client_id, name, audio_params, volume_factor=1.0):
+    def __init__(self, client_id, name, audio_params, volume_factor=1.0, in_channel=True):
         self.client_id = client_id
         self.name = name
-        self.in_channel = False
+        self.in_channel = in_channel
         self.volume_factor = volume_factor
         self._audio_output = Audio(output_needed=True, **audio_params)
 
     def play_audio(self, audio_data):
-        print(f'Playing audio from user {self.client_id}')
         self._audio_output.playback(audioop.mul(audio_data, self._audio_output.sample_size, self.volume_factor))
 
     def __del__(self):
         self._audio_output.close()
+
+    def __repr__(self):
+        return f'User: client_id={self.client_id} name={self.name} in_channel={self.in_channel}'
+
+
+class DummyUser:
+    def __init__(self, client_id, name):
+        self.client_id = client_id
+        self.name = name
+        self.in_channel = True
 
 
 class SoundZError(Exception):
@@ -210,21 +223,21 @@ class SoundZError(Exception):
 
 
 class SoundZClient:
-    '''Not in use yet'''
-
     SERVER_PORT = 4452
     SERVER_KEY = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
-    def __init__(self, server_ip, name, output_volume_factor=1.0, input_volume_factor=1.0):
+    def __init__(self, server_ip, name, output_volume_factor=1.0, input_volume_factor=1.0, user_list_change_callback=None):
         self.server_ip = server_ip
         self._name = name
         self._output_volume_factor = output_volume_factor
-        self.input_volume_factor = input_volume_factor  # TODO: Actually implement using VolumeChangeAudioInput
+        self._input_volume_factor = input_volume_factor
+        self._user_list_change_callback = user_list_change_callback
         self._client_id = None
 
         self._tcp_manager = TcpManagerClient(server_ip, self._events_callback)
         self._udp_stream = None
         self._audio_input = None
+        self._input_volume_changer = None
 
         self._users = {}
 
@@ -235,23 +248,44 @@ class SoundZClient:
         return self._audio_input
 
     @property
-    def volume_factor(self):
+    def output_volume_factor(self):
         return self._output_volume_factor
 
-    @volume_factor.setter
-    def set_volume_factor(self, new_value):
+    @output_volume_factor.setter
+    def set_output_volume_factor(self, new_value):
         for user in self._users.values():
             user.volume_factor = user.volume_factor / self._output_volume_factor * new_value
         self._output_volume_factor = new_value
 
+    @property
+    def input_volume_factor(self):
+        return self._input_volume_factor
+
+    @input_volume_factor.setter
+    def set_input_volume_factor(self, new_value):
+        if self._input_volume_changer is not None:
+            self._input_volume_changer.volume_factor = new_value
+        self._input_volume_factor = new_value
+
+    def _channel_user_list_change(self, event=None, user=None):
+        if self._user_list_change_callback is not None:
+            try:
+                return self._user_list_change_callback(event, user, [DummyUser(self._client_id, self._name)] + list(self._users.values()))
+            except Exception as e:
+                print(f'ERROR in SoundZClient.user_list_change_callback! {e.__class__.__name__}: {e}')
+
     def _events_callback(self, command, payload):
         if command == b'Name':
             client_id, name = payload
-            self._users[client_id] = User(client_id, name, self._audio_params, self._output_volume_factor)  # TODO: Remember user volume settings
+            self._users[client_id] = User(client_id, name, self._audio_params, self._output_volume_factor, in_channel=False)  # TODO: Remember user volume factor
         elif command == b'JoinedChannel':
             self._users[payload].in_channel = True
+            self._channel_user_list_change('join', self._users[payload])
         elif command == b'LeftChannel':
             self._users[payload].in_channel = False
+            user = self._users.pop(payload, None)
+            if user is not None:
+                self._channel_user_list_change('leave', user)
 
     def _audio_callback(self, client_id, frame):
         self._users[client_id].play_audio(frame)
@@ -260,6 +294,7 @@ class SoundZClient:
         self._udp_stream = UdpAudioClient(UdpSocketIO(self.server_ip, self.SERVER_PORT), self._client_id, callback=self._audio_callback, **self.audio_params)
         self._udp_stream.start_receiving()
         self._audio_input = Audio(input_needed=True, **self.audio_params).add_callback(self._udp_stream.write_audio_frame)
+        self._input_volume_changer = VolumeChangeAudioInput(self._audio_input, self._input_volume_factor)
         self._audio_input.start_capture()
 
     @property
@@ -282,6 +317,7 @@ class SoundZClient:
         if not success:
             raise SoundZError(payload)
         self._users = {client_id: User(client_id, name, self.audio_params) for client_id, name in payload}  # TODO: Remember user volume factor
+        self._channel_user_list_change()
 
         self._init_audio()
 
@@ -316,6 +352,14 @@ if _have_pynput:
         return selected_key
 
 
+def print_channel_event(event, user, user_list):
+    event_str = {'leave': 'left', 'join': 'joined'}.get(event, None)
+    name_list = ', '.join(sorted(u.name for u in user_list if u.in_channel))
+    if event_str:
+        print(f'{user.name} has {event_str} the channel.')
+    print(f'Users currently in channel: {name_list}.')
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('-p', '--push-to-talk', action='store_true')
@@ -341,7 +385,7 @@ def main():
 
     print(f'Using {"PTT" if ptt_key is not None else "Vox"} filter.')
 
-    soundz_client = SoundZClient(args.server_ip, args.name)
+    soundz_client = SoundZClient(args.server_ip, args.name, args.output_volume, args.input_volume, print_channel_event)
     soundz_client.start()
     _tx_filter = VoxAudioInputFilter(soundz_client.audio_input) if ptt_key is None else PushToTalkAudioInputFilter(soundz_client.audio_input, ptt_key)
     if args.input_volume:
