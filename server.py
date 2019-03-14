@@ -131,7 +131,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         while 1:
             try:
                 command, payload = self._read_frame()
-            except ConnectionError:
+            except (ConnectionError, TimeoutError):
                 break
             except Exception:
                 self.write_frame(b'BadFrame')

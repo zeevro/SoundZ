@@ -54,7 +54,7 @@ class UdpAudioClient:
         self._encoder = opuslib.Encoder(sample_rate, channels, opuslib.APPLICATION_VOIP)
         self._decoder = opuslib.Decoder(sample_rate, channels)
 
-        self._recv_thread = threading.Thread(target=self._recv_thread_func)
+        self._recv_thread = threading.Thread(name='UdpAudioClient.recv', target=self._recv_thread_func)
         self._recv_thread.daemon = True
         self._stop = False
 
@@ -82,8 +82,8 @@ class UdpAudioClient:
     def _read_audio_frame(self) -> Tuple[int, bytes]:
         try:
             packet = self._io.read()
-        except ConnectionError:
-            pass
+        except Exception:
+            return (-1, b'')
         return int.from_bytes(packet[:2], 'big'), self._decode_audio_frame(packet[2:])
 
     def start_receiving(self):
@@ -98,6 +98,10 @@ class UdpAudioClient:
         else:
             ch_str = f'{self.channels} channels'
         return f'{self.__class__.__name__}: Sapmle rate: {self.sample_rate / 1000} kHz, {ch_str}, {self.samples_per_frame} samples per frame. Backing IO is {self._io.__class__.__name__}.'
+
+    def close(self):
+        self._stop = True
+        self._io.close()
 
 
 class TcpManagerClient:
@@ -120,13 +124,15 @@ class TcpManagerClient:
         self._response_queue = queue.Queue()
         self._event_queue = queue.Queue()
 
-        self._main_thread = threading.Thread(target=self._main_loop)
+        self._stop = False
+
+        self._main_thread = threading.Thread(name='TcpManagerClient.main', target=self._main_loop)
         self._main_thread.daemon = True
         self._main_thread.start()
 
         self._events_callback = events_callback
         if events_callback:
-            self._events_thread = threading.Thread(target=self._event_loop)
+            self._events_thread = threading.Thread(name='TcpManagerClient.events', target=self._event_loop)
             self._events_thread.daemon = True
             self._events_thread.start()
 
@@ -146,7 +152,10 @@ class TcpManagerClient:
         return payload.decode()
 
     def _read_frame(self):
-        frame_size = int.from_bytes(self._sock.recv(3), 'big')  # Frame size
+        try:
+            frame_size = int.from_bytes(self._sock.recv(3), 'big')  # Frame size
+        except ConnectionError:
+            return None, None
         if not frame_size:
             return None, None
         frame = self._sock.recv(frame_size)                     # Frame data
@@ -163,16 +172,15 @@ class TcpManagerClient:
             self._event_queue.put((command, payload))
 
     def _main_loop(self) -> None:
-        while 1:
+        while not self._stop:
             self._read_frame()
 
     def _event_loop(self) -> None:
-        while 1:
+        while not self._stop:
             try:
                 self._events_callback(*self.get_event())
             except Exception as e:
                 print(f'ERROR in TcpManagerClient.events_callback! {e.__class__.__name__}: {e}')
-                raise
 
     def _write_frame(self, command: bytes, payload: Union[bytes, str] = None) -> None:
         if payload is None:
@@ -182,15 +190,28 @@ class TcpManagerClient:
         self._sock.send((1 + len(command) + len(payload)).to_bytes(3, 'big'))  # Frame size
         self._sock.send(len(command).to_bytes(1, 'big') + command + payload)   # Frame data
 
-    def _read_response(self) -> Tuple[bytes, Union[None, dict, list, int]]:
-        return self._response_queue.get()
+    def _read_response(self, timeout: float = None) -> Tuple[bytes, Union[None, dict, list, int]]:
+        try:
+            return self._response_queue.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError()
 
-    def request(self, command: bytes, payload: str = None) -> Tuple[bytes, Union[None, dict, list, int]]:
+    def request(self, command: bytes, payload: str = None, timeout: float = None) -> Tuple[bytes, Union[None, dict, list, int]]:
         self._write_frame(command, payload)
-        return self._read_response()
+        return self._read_response(timeout)
 
     def get_event(self, block=True, timeout=None) -> Tuple[bytes, int]:
         return self._event_queue.get(block, timeout)
+
+    def close(self):
+        try:
+            self.request(b'LeaveChannel', timeout=1)
+        except:
+            pass
+        self._stop = True
+        self._sock.close()
+        if self._event_queue.empty():
+            self._event_queue.put((b'', None))
 
 
 class User:
@@ -288,6 +309,8 @@ class SoundZClient:
                 self._channel_user_list_change('leave', user)
 
     def _audio_callback(self, client_id, frame):
+        if client_id < 0 or client_id not in self._users:
+            return
         self._users[client_id].play_audio(frame)
 
     def _init_audio(self):
@@ -324,6 +347,11 @@ class SoundZClient:
         success, payload = self._tcp_manager.request(b'JoinChannel')
         if not success:
             raise SoundZError(payload)
+
+    def stop(self):
+        self._audio_input.close()
+        self._tcp_manager.close()
+        self._udp_stream.close()
 
 
 if _have_pynput:
