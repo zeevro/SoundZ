@@ -3,6 +3,7 @@ import audioop
 import time
 import pyaudio
 from operator import itemgetter
+from enum import Enum
 
 
 try:
@@ -26,10 +27,11 @@ DEFAULT_VOX_TIMEOUT = 0.4
 
 DEFAULT_KEEPALIVE_TIME = 8
 
-AUDIO_INPUT_CALLBACK_TYPE_FILTER = 1
-AUDIO_INPUT_CALLBACK_TYPE_EFFECT = 2
-AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL = 3
-AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT = 4
+AUDIO_INPUT_CALLBACK_TYPE_MEASURE = 1
+AUDIO_INPUT_CALLBACK_TYPE_FILTER = 2
+AUDIO_INPUT_CALLBACK_TYPE_EFFECT = 3
+AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL = 4
+AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT = 5
 
 
 sample_format_names = {getattr(pyaudio, f'pa{name}'): name for name in ['Int8', 'UInt8', 'Int16', 'Int24', 'Int32', 'Float32']}
@@ -109,6 +111,20 @@ class Audio:
         self.callback_chain.sort(key=itemgetter(0))
         return self
 
+    def remove_callback(self, callback_func):
+        for n, (type_, func) in enumerate(self.callback_chain):
+            if func == callback_func:
+                del self.callback_chain[n]
+                break
+
+    def remove_callbacks_by_type(self, callback_type):
+        to_remove = []
+        for n, (type_, func) in enumerate(self.callback_chain):
+            if type_ == callback_type:
+                to_remove.append(n)
+        for i in to_remove:
+            del self.callback_chain[i]
+
     def start_capture(self):
         assert self.callback_chain, 'No input callbacks'
         self.initialize()
@@ -117,6 +133,7 @@ class Audio:
 
     def stop_capture(self):
         self._input_stream.stop_stream()
+        self._input_stream = None
         return self
 
     def playback(self, data):
@@ -126,13 +143,19 @@ class Audio:
     def close(self):
         if self._output_stream is not None:
             if not self._output_stream.is_stopped():
-                self._output_stream.stop_stream()
+                try:
+                    self._output_stream.stop_stream()
+                except:
+                    pass
             self._output_stream.close()
             self._output_stream = None
 
         if self._input_stream is not None:
             if not self._input_stream.is_stopped():
-                self._input_stream.stop_stream()
+                try:
+                    self._input_stream.stop_stream()
+                except:
+                    pass
             self._input_stream.close()
             self._input_stream = None
 
@@ -144,15 +167,48 @@ class Audio:
         self.close()
 
 
+class CalculateVolumeMixin:
+    def _calculate_volume(self, frame):
+        return audioop.rms(frame, self._audio.sample_size)
+
+
 class AudioInputCallbackBase:
     callback_type = None
 
     def __init__(self, audio):
+        self._stop = False
         self._audio = audio
         audio.add_callback(self.callback, self.callback_type)
 
     def callback(self, frame):
         return frame
+
+    def stop(self):
+        self._audio.remove_callback(self.callback)
+        self._stop = True
+
+    def __del__(self):
+        self.stop()
+
+
+class AudioInputMeasureBase(AudioInputCallbackBase):
+    callback_type = AUDIO_INPUT_CALLBACK_TYPE_MEASURE
+
+    def callback(self, frame):
+        self.measure(frame)
+        return frame
+
+    def measure(self, frame):
+        raise NotImplementedError()
+
+
+class MeasureVolumeCallback(CalculateVolumeMixin, AudioInputMeasureBase):
+    def __init__(self, audio, result_callback):
+        super().__init__(audio)
+        self._callback = result_callback
+
+    def measure(self, frame):
+        self._callback(self._calculate_volume(frame))
 
 
 class AudioInputKeepAlive(AudioInputCallbackBase):
@@ -190,15 +246,12 @@ class AudioInputFilterBase(AudioInputCallbackBase):
         raise NotImplementedError()
 
 
-class VoxAudioInputFilter(AudioInputFilterBase):
+class VoxAudioInputFilter(CalculateVolumeMixin, AudioInputFilterBase):
     def __init__(self, audio, threshold=DEFAULT_VOX_THRESHOLD, timeout=DEFAULT_VOX_TIMEOUT):
         super().__init__(audio)
         self.threshold = threshold
         self.timeout = timeout
         self._breach_timestamp = None
-
-    def _calculate_volume(self, frame):
-        return audioop.rms(frame, self._audio.sample_size)
 
     def filter(self, frame):
         volume = self._calculate_volume(frame)
@@ -215,28 +268,53 @@ class VoxAudioInputFilter(AudioInputFilterBase):
 
 if _have_pynput:
     class PushToTalkAudioInputFilter(AudioInputFilterBase):
-        def __init__(self, audio, key):
+        def __init__(self, audio, sequence):
             super().__init__(audio)
-            self._key = key
+            self.sequence = sequence
             self._listener = pynput.keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
             self._listener_started = False
-            self._pressed = False
+            self._pressed = set()
+            self._breached = False
+
+        @property
+        def sequence(self):
+            return self._sequence
+
+        @sequence.setter
+        def sequence(self, seq):
+            if isinstance(seq, str):
+                self._sequence = set(seq.lower().replace('win', 'cmd').split('+'))
+            else:
+                self._sequence = set(seq)
+
+        @staticmethod
+        def _get_key_names(key):
+            if isinstance(key, Enum):
+                return (k for k in dir(pynput.keyboard.Key) if key.name.startswith(k))
+            return (key.char,)
+
+        def _is_breached(self):
+            return self._pressed.issuperset(self.sequence)
 
         def _on_press(self, key):
-            if key == self._key:
-                self._pressed = True
-            return self._audio._input_stream.is_active()
+            self._pressed.update(self._get_key_names(key))
+            self._breached = self._is_breached()
+            return self._audio._input_stream.is_active() and not self._stop
 
         def _on_release(self, key):
-            if key == self._key:
-                self._pressed = False
-            return self._audio._input_stream.is_active()
+            self._pressed.difference_update(self._get_key_names(key))
+            self._breached = self._is_breached()
+            return self._audio._input_stream.is_active() and not self._stop
+
+        def stop(self):
+            super().stop()
+            self._listener.stop()
 
         def filter(self, frame):
             if not self._listener_started:
                 self._listener.start()
                 self._listener_started = True
-            return self._pressed
+            return self._breached
 else:
     class PushToTalkAudioInputFilter:
         def __init__(self, *a, **kw):

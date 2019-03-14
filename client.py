@@ -215,15 +215,20 @@ class TcpManagerClient:
 
 
 class User:
-    def __init__(self, client_id, name, audio_params, volume_factor=1.0, in_channel=True):
+    def __init__(self, client_id, name, audio_params, muted=False, volume_factor=1.0, in_channel=True, master_volume_factor_callback=lambda: 1):
         self.client_id = client_id
         self.name = name
         self.in_channel = in_channel
+        self.muted = muted
         self.volume_factor = volume_factor
+        self._master_volume_factor_callback = master_volume_factor_callback
         self._audio_output = Audio(output_needed=True, **audio_params)
 
     def play_audio(self, audio_data):
-        self._audio_output.playback(audioop.mul(audio_data, self._audio_output.sample_size, self.volume_factor))
+        if not self.muted:
+            volume_factor = self.volume_factor * self._master_volume_factor_callback()
+            if volume_factor > 0:
+                self._audio_output.playback(audioop.mul(audio_data, self._audio_output.sample_size, self.volume_factor * self._master_volume_factor_callback()))
 
     def __del__(self):
         self._audio_output.close()
@@ -233,10 +238,13 @@ class User:
 
 
 class DummyUser:
-    def __init__(self, client_id, name):
+    def __init__(self, client_id=None, name=None):
         self.client_id = client_id
         self.name = name
         self.in_channel = True
+        self.muted = False
+        self.volume_factor = 1.0
+        self._audio_output = None
 
 
 class SoundZError(Exception):
@@ -247,12 +255,13 @@ class SoundZClient:
     SERVER_PORT = 4452
     SERVER_KEY = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
-    def __init__(self, server_ip, name, output_volume_factor=1.0, input_volume_factor=1.0, user_list_change_callback=None):
+    def __init__(self, server_ip, name, output_volume_factor=1.0, input_volume_factor=1.0, user_list_change_callback=None, muted=False):
         self.server_ip = server_ip
         self._name = name
-        self._output_volume_factor = output_volume_factor
+        self.output_volume_factor = output_volume_factor
         self._input_volume_factor = input_volume_factor
         self._user_list_change_callback = user_list_change_callback
+        self.muted = muted
         self._client_id = None
 
         self._tcp_manager = TcpManagerClient(server_ip, self._events_callback)
@@ -269,24 +278,22 @@ class SoundZClient:
         return self._audio_input
 
     @property
-    def output_volume_factor(self):
-        return self._output_volume_factor
-
-    @output_volume_factor.setter
-    def set_output_volume_factor(self, new_value):
-        for user in self._users.values():
-            user.volume_factor = user.volume_factor / self._output_volume_factor * new_value
-        self._output_volume_factor = new_value
+    def users(self):
+        return self._users.copy()
 
     @property
     def input_volume_factor(self):
         return self._input_volume_factor
 
     @input_volume_factor.setter
-    def set_input_volume_factor(self, new_value):
+    def input_volume_factor(self, new_value):
         if self._input_volume_changer is not None:
             self._input_volume_changer.volume_factor = new_value
         self._input_volume_factor = new_value
+
+    def make_new_user(self, client_id, name):
+        # TODO: Remember user volume factor
+        return User(client_id, name, self.audio_params, in_channel=False, master_volume_factor_callback=lambda: self.output_volume_factor * (not self.muted))
 
     def _channel_user_list_change(self, event=None, user=None):
         if self._user_list_change_callback is not None:
@@ -298,7 +305,7 @@ class SoundZClient:
     def _events_callback(self, command, payload):
         if command == b'Name':
             client_id, name = payload
-            self._users[client_id] = User(client_id, name, self._audio_params, self._output_volume_factor, in_channel=False)  # TODO: Remember user volume factor
+            self._users[client_id] = self.make_new_user(client_id, name)
         elif command == b'JoinedChannel':
             self._users[payload].in_channel = True
             self._channel_user_list_change('join', self._users[payload])
@@ -339,7 +346,7 @@ class SoundZClient:
         success, payload = self._tcp_manager.request(b'ListChannelUsers')
         if not success:
             raise SoundZError(payload)
-        self._users = {client_id: User(client_id, name, self.audio_params) for client_id, name in payload}  # TODO: Remember user volume factor
+        self._users = {client_id: self.make_new_user(client_id, name) for client_id, name in payload}  # TODO: Remember user volume factor
         self._channel_user_list_change()
 
         self._init_audio()
@@ -349,35 +356,12 @@ class SoundZClient:
             raise SoundZError(payload)
 
     def stop(self):
-        self._audio_input.close()
-        self._tcp_manager.close()
-        self._udp_stream.close()
-
-
-if _have_pynput:
-    def get_ptt_key():
-        print('Press the key you wish to use for PTT. Press ESC to cancel.')
-
-        key_l = []
-
-        def on_press(key):
-            print(f'on_press({key})')
-            key_l.append(key)
-            return False
-
-        keyboard_listener = pynput.keyboard.Listener(on_press=on_press, suppress=True)
-        keyboard_listener.start()
-        keyboard_listener.join()
-
-        selected_key = key_l[0]
-
-        if selected_key == pynput.keyboard.Key.esc:
-            print('Cancelled.')
-            return None
-
-        print(f'{selected_key} was selected.')
-
-        return selected_key
+        if self._audio_input is not None:
+            self._audio_input.close()
+        if self._tcp_manager is not None:
+            self._tcp_manager.close()
+        if self._udp_stream is not None:
+            self._udp_stream.close()
 
 
 def print_channel_event(event, user, user_list):
@@ -390,7 +374,7 @@ def print_channel_event(event, user, user_list):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('-p', '--push-to-talk', action='store_true')
+    p.add_argument('-p', '--push-to-talk')
     p.add_argument('-P', '--server-port', type=int, default=SERVER_PORT)
     p.add_argument('-s', '--server-ip', default='127.0.0.1')
     p.add_argument('-k', '--server-key', default=SERVER_KEY)
@@ -404,18 +388,16 @@ def main():
     print('Hello')
     print()
 
-    ptt_key = None
-    if args.push_to_talk:
-        if not _have_pynput:
-            print('You must install pynput to use the push-to-talk feature.')
-            return
-        ptt_key = get_ptt_key()
+    ptt_sequence = args.push_to_talk
+    if args.push_to_talk and not _have_pynput:
+        print('You must install pynput to use the push-to-talk feature.')
+        ptt_sequence = None
 
-    print(f'Using {"PTT" if ptt_key is not None else "Vox"} filter.')
+    print(f'Using {"PTT" if ptt_sequence is not None else "Vox"} filter.')
 
     soundz_client = SoundZClient(args.server_ip, args.name, args.output_volume, args.input_volume, print_channel_event)
     soundz_client.start()
-    _tx_filter = VoxAudioInputFilter(soundz_client.audio_input) if ptt_key is None else PushToTalkAudioInputFilter(soundz_client.audio_input, ptt_key)
+    _tx_filter = VoxAudioInputFilter(soundz_client.audio_input) if ptt_sequence is None else PushToTalkAudioInputFilter(soundz_client.audio_input, ptt_sequence)
     if args.input_volume:
         _volume_changer = VolumeChangeAudioInput(soundz_client.audio_input, args.input_volume)
 

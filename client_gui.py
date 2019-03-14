@@ -1,15 +1,70 @@
 from typing import Tuple, Callable, Any
 import tkinter
 import tkinter.ttk
+import tkinter.simpledialog
 import threading
 import queue
+import math
+import os
+import json
 import time
 
-from client import SoundZClient
-from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
+from client import SoundZClient, DummyUser
+from soundz_audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER
+import appdirs
+
+
+# TODO: Figure out a way to update the input volume level bar and the TX marker on the bottom left corner without consuming CPU
+# TODO: Fix the issues with the server address input dialog
+# TODO: General instability issues
 
 
 TK_VAR_PREFIX = 'sndz_'
+
+
+class SettingsManager(object):
+    def __init__(self, minimum_save_interval=0.1):
+        self._minimum_save_interval = minimum_save_interval
+        self._filename = os.path.join(appdirs.user_config_dir(roaming=True), 'soundz_client_settings.conf')
+        self._cache = {}
+        self._last_save = 0
+
+    def __del__(self):
+        self._save_to_file()
+
+    def _load_from_file(self):
+        try:
+            with open(self._filename) as f:
+                for line in f:
+                    k, v = line.strip().split(maxsplit=1)
+                    self._cache[k] = v
+        except Exception:
+            self._cache = {}
+
+    def _save_to_file(self):
+        with open(self._filename, 'w') as f:
+            for k, v in self._get_data().items():
+                print(k, v, file=f)
+        self._last_save = time.time()
+
+    def _get_data(self):
+        if not self._cache:
+            self._load_from_file()
+        return self._cache
+
+    def get(self, name, default=None):
+        return self._get_data().get(name, default)
+
+    def put(self, name, value):
+        self._get_data()[name] = value
+        if self._last_save + self._minimum_save_interval <= time.time():
+            self._save_to_file()
+
+    __getitem__ = get
+    __setitem__ = put
+
+    def __iter__(self):
+        return iter(self._get_data().items())
 
 
 class NullContext:
@@ -33,7 +88,7 @@ class SoundZGUI:
         self._gui_thread = None
 
     def _variable_callback_func(self, var_name, array_index, op):
-        self._gui_event_queue.put(('var', var_name, self._tk.globalgetvar(var_name)))
+        self._gui_event_queue.put(('var', var_name[len(TK_VAR_PREFIX):], self._tk.globalgetvar(var_name)))
 
     def _make_click_callback_func(self, name):
         def click_callback_func():
@@ -53,14 +108,34 @@ class SoundZGUI:
         top = tkinter.Tk()
         top.title('SoundZ chat')
 
-        tkinter.Label(top, textvariable=f'{TK_VAR_PREFIX}statusbar_text', bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W).pack(side=tkinter.BOTTOM, fill=tkinter.X)
+        with NullContext():
+            statusbar_frame = tkinter.Frame(top)
+            tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_tx', bd=1, relief=tkinter.SUNKEN, width=2).pack(side=tkinter.LEFT)
+            tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_text', bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
+            statusbar_frame.pack(side=tkinter.BOTTOM, fill=tkinter.X)
+
+        with NullContext():
+            menubar = tkinter.Menu(top)
+
+            with NullContext():
+                servermenu = tkinter.Menu(menubar, tearoff=0)
+                servermenu.add_command(label='Address...', command=self._make_click_callback_func('set_server_address'))
+                menubar.add_cascade(label='Server', menu=servermenu)
+
+            with NullContext():
+                optionsmenu = tkinter.Menu(menubar, tearoff=0)
+                optionsmenu.add_checkbutton(label='Display volume level', variable=f'{TK_VAR_PREFIX}display_input_volume_level')
+                menubar.add_cascade(label='Options', menu=optionsmenu)
+
+            top.config(menu=menubar)
 
         with NullContext():
             panels = tkinter.PanedWindow(top)
             with NullContext():
                 right_panel_frame = tkinter.LabelFrame(panels, text='Channel users', padx=2, pady=2)
-                self._users_list_box = tkinter.Listbox(right_panel_frame, listvariable=f'{TK_VAR_PREFIX}users_list', exportselection=0)
-                self._users_list_box.pack(fill=tkinter.BOTH, expand=True)
+                users_list = tkinter.Listbox(right_panel_frame, listvariable=f'{TK_VAR_PREFIX}users_list', exportselection=0)
+                users_list.pack(fill=tkinter.BOTH, expand=True)
+                users_list.bind('<<ListboxSelect>>', lambda evt: self._gui_event_queue.put(('list_sel', 'users', evt.widget.curselection()[0])))
                 panels.add(right_panel_frame, minsize=120)
 
             with NullContext():
@@ -89,14 +164,14 @@ class SoundZGUI:
                     with NullContext():
                         vox_frame = tkinter.Frame(settings_frame)
                         tkinter.Label(vox_frame, text='Vox threshold').pack(side=tkinter.LEFT)
-                        tkinter.Scale(vox_frame, orient=tkinter.HORIZONTAL, showvalue=False, from_=-20, to=20, resolution=0.1, variable=f'{TK_VAR_PREFIX}vox_threshold').pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
+                        tkinter.Scale(vox_frame, orient=tkinter.HORIZONTAL, showvalue=False, from_=0, to=3000, resolution=1, variable=f'{TK_VAR_PREFIX}vox_threshold').pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
                         vox_frame.pack(fill=tkinter.X)
 
-                    # with NullContext():
-                    #     volume_bar_frame = tkinter.Frame(settings_frame)
-                    #     tkinter.Label(volume_bar_frame, text='Input volume').pack(side=tkinter.LEFT)
-                    #     tkinter.ttk.Progressbar(volume_bar_frame, variable=f'{TK_VAR_PREFIX}input_volume_level').pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
-                    #     volume_bar_frame.pack(fill=tkinter.X)
+                    with NullContext():
+                        volume_bar_frame = tkinter.Frame(settings_frame)
+                        tkinter.Label(volume_bar_frame, text='Input volume').pack(side=tkinter.LEFT)
+                        tkinter.ttk.Progressbar(volume_bar_frame, variable=f'{TK_VAR_PREFIX}input_volume_level', maximum=0x7FFF).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
+                        volume_bar_frame.pack(fill=tkinter.X)
 
                     settings_frame.pack(fill=tkinter.X)
 
@@ -170,43 +245,171 @@ class SoundZGUI:
     __getitem__ = getvar
 
 
+def gain2db(gain):
+    return 20 * math.log10(gain)
+
+
+def db2gain(db):
+    return 10 ** (db / 20)
+
+
 def main():
+    settings = SettingsManager()
+
     gui = SoundZGUI().start(show=False)
-    gui['user_name'] = 'Primer'
-    gui['input_filter_type'] = 'vox'
+    for k, v in settings:
+        if k.startswith('gui_'):
+            gui[k[4:]] = v
     gui.show_window()
 
-    gui_users = {}
+    gui_list_ids_by_client_id = {}
+    users_by_gui_list_id = {}
+    selected_user = DummyUser()
+    old_input_filter_type = None
+    input_filter = None
+    last_volume_level_update = [0]
 
     def user_list_event(event, user, new_list):
         new_sorted_list = sorted(new_list, key=lambda u: u.name.lower())
+
         gui['users_list'] = [u.name for u in new_sorted_list]
-        gui_users = {u.client_id: n for n, u in enumerate(new_sorted_list)}
+
+        gui_list_ids_by_client_id.clear()
+        gui_list_ids_by_client_id.update({u.client_id: n for n, u in enumerate(new_sorted_list)})
+        users_by_gui_list_id.clear()
+        users_by_gui_list_id.update({n: u for n, u in enumerate(new_sorted_list)})
+
+    def display_input_volume_level(vol):
+        if last_volume_level_update[0] + 0.2 < time.time():
+            gui['input_volume_level'] = vol
+            last_volume_level_update.pop()
+            last_volume_level_update.append(time.time())
+
+    def display_is_transmitting(frame):
+        gui['statusbar_tx'] = 'X' * bool(frame)
+        return frame
 
     client = None
     for event, name, value in gui.events:
-        print(event, name, value)
+        #print(event, name, repr(value), type(value))
         if event == 'click':
             if name == 'connect':
-                try:
-                    client = SoundZClient('127.0.0.1', gui['user_name'], user_list_change_callback=user_list_event)
-                    gui['statusbar_text'] = 'Connecting...'
-                    client.start()
-                    gui['statusbar_text'] = 'Online'
-                except Exception as err:
-                    gui['statusbar_text'] = f'Offline [ERROR: {err}]'
+                if client is None:
+                    try:
+                        assert settings['server_address'], 'No server address'
+                        client = SoundZClient(settings['server_address'], gui['user_name'], user_list_change_callback=user_list_event)
+                        gui['statusbar_text'] = 'Connecting...'
+                        client.start()
+                        client.input_volume_factor = db2gain(float(gui['mic_volume']))
+                        if int(gui['mic_mute']):
+                            client._audio_input.stop_capture()
+                        client.output_volume_factor = db2gain(float(gui['output_volume']))
+                        client.muted = bool(int(gui['output_mute']))
+                        if gui['input_filter_type'] == 'vox':
+                            input_filter = VoxAudioInputFilter(client.audio_input, int(gui['vox_threshold']))
+                        elif gui['input_filter_type'] == 'ptt':
+                            input_filter = PushToTalkAudioInputFilter(client.audio_input, gui['ptt_hotkey'])
+                        old_input_filter_type = value
+                        #if int(gui['display_input_volume_level']):
+                        #    MeasureVolumeCallback(client.audio_input, display_input_volume_level)
+                        #client.audio_input.add_callback(display_is_transmitting, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
+                        gui['statusbar_text'] = 'Online'
+                    except Exception as err:
+                        if client is not None:
+                            client.stop()
+                            client = None
+                            input_filter = None
+                        gui['statusbar_text'] = f'Offline [ERROR: {err}]'
+                        gui['users_list'] = []
+                        gui_list_ids_by_client_id = {}
+                        users_by_gui_list_id = {}
+
             elif name == 'disconnect':
                 if client is not None:
                     gui['statusbar_text'] = 'Disconnecting...'
                     client.stop()
                     client = None
+                    input_filter = None
                     gui['statusbar_text'] = 'Offline'
-                    gui_users = {}
                     gui['users_list'] = []
-        elif event == 'var':
-            pass
+                    gui_list_ids_by_client_id = {}
+                    users_by_gui_list_id = {}
 
-    client.stop()
+            elif name == 'set_server_address':
+                _temp_root = tkinter.Tk()
+                _temp_root.withdraw()
+                settings['server_address'] = tkinter.simpledialog.askstring('SoundZ', 'Server address:', initialvalue=settings['server_address'], parent=_temp_root) or settings['server_address']
+                _temp_root.destroy()
+
+        elif event == 'list_sel':
+            if name == 'users':
+                selected_user = users_by_gui_list_id[int(value)]
+                gui['user_volume'] = gain2db(selected_user.volume_factor)
+                gui['user_mute'] = selected_user.muted
+
+        elif event == 'var':
+            if name in ('mic_volume', 'mic_mute', 'output_volume', 'output_mute', 'input_filter_type', 'vox_threshold', 'ptt_hotkey', 'display_input_volume_level', 'user_name'):
+                settings.put(f'gui_{name}', value)
+
+            if name == 'user_volume':
+                if isinstance(selected_user, DummyUser) and float(value) != 0:
+                    gui[name] = 0
+                else:
+                    selected_user.volume_factor = db2gain(float(value))
+
+            elif name == 'user_mute':
+                if isinstance(selected_user, DummyUser) and bool(int(value)) != False:
+                    gui[name] = False
+                else:
+                    selected_user.muted = bool(int(value))
+
+            elif name == 'mic_volume':
+                if client is not None:
+                    client.input_volume_factor = db2gain(float(value))
+
+            elif name == 'mic_mute':
+                if client is not None:
+                    if int(value):
+                        client._audio_input.stop_capture()
+                    else:
+                        client._audio_input.start_capture()
+
+            elif name == 'output_volume':
+                if client is not None:
+                    client.output_volume_factor = db2gain(float(value))
+
+            elif name == 'output_mute':
+                if client is not None:
+                    client.muted = bool(int(value))
+
+            elif name == 'input_filter_type':
+                if client is not None:
+                    if value != old_input_filter_type:
+                        old_input_filter_type = value
+                        input_filter.stop()
+                        if value == 'vox':
+                            input_filter = VoxAudioInputFilter(client.audio_input, int(gui['vox_threshold']))
+                        elif value == 'ptt':
+                            input_filter = PushToTalkAudioInputFilter(client.audio_input, gui['ptt_hotkey'])
+
+            elif name == 'vox_threshold':
+                if isinstance(input_filter, VoxAudioInputFilter):
+                    input_filter.threshold = int(value)
+
+            elif name == 'ptt_hotkey':
+                if isinstance(input_filter, PushToTalkAudioInputFilter):
+                    input_filter.key = value
+
+            # elif name == 'display_input_volume_level':
+            #     if client is not None:
+            #         if int(value):
+            #             #client.audio_input.add_callback(display_input_volume_level)
+
+            #         else:
+            #             #client.audio_input.remove_callback(display_input_volume_level)
+
+    if client is not None:
+        client.stop()
 
 
 if __name__ == "__main__":
