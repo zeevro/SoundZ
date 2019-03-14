@@ -17,6 +17,7 @@ import appdirs
 # TODO: Fix the issues with the server address input dialog
 # TODO: General instability issues
 # TODO: Make the GUI thread the main thread - seems better for Tk
+# TODO: Select audio devices
 
 
 TK_VAR_PREFIX = 'sndz_'
@@ -34,7 +35,7 @@ class SettingsManager(object):
 
     def _load_from_file(self):
         try:
-            with open(self._filename) as f:
+            with open(self._filename, encoding='utf8') as f:
                 for line in f:
                     k, v = line.strip().split(maxsplit=1)
                     self._cache[k] = v
@@ -42,7 +43,7 @@ class SettingsManager(object):
             self._cache = {}
 
     def _save_to_file(self):
-        with open(self._filename, 'w') as f:
+        with open(self._filename, 'w', encoding='utf8') as f:
             for k, v in self._get_data().items():
                 print(k, v, file=f)
         self._last_save = time.time()
