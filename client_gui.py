@@ -14,9 +14,9 @@ from soundz_audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, Measur
 import appdirs
 
 
-# TODO: Figure out a way to update the input volume level bar and the TX marker on the bottom left corner without consuming CPU
 # TODO: Fix the issues with the server address input dialog
 # TODO: General instability issues
+# TODO: Make the GUI thread the main thread - seems better for Tk
 
 
 TK_VAR_PREFIX = 'sndz_'
@@ -268,6 +268,8 @@ def main():
     old_input_filter_type = None
     input_filter = None
     last_volume_level_update = [0]
+    old_is_transmitting = [False]
+    volume_measure = None
 
     def user_list_event(event, user, new_list):
         new_sorted_list = sorted(new_list, key=lambda u: u.name.lower())
@@ -280,13 +282,15 @@ def main():
         users_by_gui_list_id.update({n: u for n, u in enumerate(new_sorted_list)})
 
     def display_input_volume_level(vol):
-        if last_volume_level_update[0] + 0.2 < time.time():
+        if last_volume_level_update[0] + 0.1 < time.time():
             gui['input_volume_level'] = vol
             last_volume_level_update.pop()
             last_volume_level_update.append(time.time())
 
     def display_is_transmitting(frame):
-        gui['statusbar_tx'] = 'X' * bool(frame)
+        if bool(frame) != old_is_transmitting[0]:
+            old_is_transmitting.append(not old_is_transmitting.pop())
+            gui['statusbar_tx'] = 'X' * bool(frame)
         return frame
 
     client = None
@@ -310,9 +314,9 @@ def main():
                         elif gui['input_filter_type'] == 'ptt':
                             input_filter = PushToTalkAudioInputFilter(client.audio_input, gui['ptt_hotkey'])
                         old_input_filter_type = value
-                        #if int(gui['display_input_volume_level']):
-                        #    MeasureVolumeCallback(client.audio_input, display_input_volume_level)
-                        #client.audio_input.add_callback(display_is_transmitting, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
+                        if int(gui['display_input_volume_level']):
+                            volume_measure = MeasureVolumeCallback(client.audio_input, display_input_volume_level)
+                        client.audio_input.add_callback(display_is_transmitting, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
                         gui['statusbar_text'] = 'Online'
                     except Exception as err:
                         if client is not None:
@@ -400,13 +404,14 @@ def main():
                 if isinstance(input_filter, PushToTalkAudioInputFilter):
                     input_filter.key = value
 
-            # elif name == 'display_input_volume_level':
-            #     if client is not None:
-            #         if int(value):
-            #             #client.audio_input.add_callback(display_input_volume_level)
-
-            #         else:
-            #             #client.audio_input.remove_callback(display_input_volume_level)
+            elif name == 'display_input_volume_level':
+                if client is not None:
+                    if int(value):
+                        volume_measure = MeasureVolumeCallback(client.audio_input, display_input_volume_level)
+                    else:
+                        volume_measure.stop()
+                        volume_measure = None
+                        gui['input_volume_level'] = 0
 
     if client is not None:
         client.stop()
