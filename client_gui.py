@@ -284,7 +284,7 @@ def main():
 
         if event == 'join':
             play_sound(JOIN_WAVE_FILE)
-        elif event == 'left':
+        elif event == 'leave':
             play_sound(LEAVE_WAVE_FILE)
 
     def display_input_volume_level(vol):
