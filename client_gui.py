@@ -10,7 +10,7 @@ import json
 import time
 
 from client import SoundZClient, DummyUser
-from soundz_audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER
+from soundz_audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER, play_wave_file_async
 import appdirs
 
 
@@ -21,6 +21,12 @@ import appdirs
 
 
 TK_VAR_PREFIX = 'sndz_'
+
+SOUNDS_DIR = os.path.join(os.path.dirname(__file__), 'sounds')
+CONNECT_WAVE_FILE = os.path.join(SOUNDS_DIR, 'connected.wav')
+DISCONNECT_WAVE_FILE = os.path.join(SOUNDS_DIR, 'disconnected.wav')
+JOIN_WAVE_FILE = os.path.join(SOUNDS_DIR, 'user_joined.wav')
+LEAVE_WAVE_FILE = os.path.join(SOUNDS_DIR, 'user_left.wav')
 
 
 class SettingsManager(object):
@@ -71,8 +77,11 @@ class SettingsManager(object):
 class NullContext:
     '''Just an easy way to introduce indentation into code in order to improve readability'''
 
+    def __init__(self, thing=None):
+        self._thing = thing
+
     def __enter__(self):
-        pass
+        return self._thing
 
     def __exit__(self, *a, **kw):
         pass
@@ -109,75 +118,58 @@ class SoundZGUI:
         top = tkinter.Tk()
         top.title('SoundZ chat')
 
-        with NullContext():
-            statusbar_frame = tkinter.Frame(top)
+        with NullContext(tkinter.Frame(top)) as statusbar_frame:
             tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_tx', bd=1, relief=tkinter.SUNKEN, width=2).pack(side=tkinter.LEFT)
             tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_text', bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
             statusbar_frame.pack(side=tkinter.BOTTOM, fill=tkinter.X)
 
-        with NullContext():
-            menubar = tkinter.Menu(top)
-
-            with NullContext():
-                servermenu = tkinter.Menu(menubar, tearoff=0)
+        with NullContext(tkinter.Menu(top)) as menubar:
+            with NullContext(tkinter.Menu(menubar, tearoff=0)) as servermenu:
                 servermenu.add_command(label='Address...', command=self._make_click_callback_func('set_server_address'))
                 menubar.add_cascade(label='Server', menu=servermenu)
 
-            with NullContext():
-                optionsmenu = tkinter.Menu(menubar, tearoff=0)
+            with NullContext(tkinter.Menu(menubar, tearoff=0)) as optionsmenu:
                 optionsmenu.add_checkbutton(label='Display volume level', variable=f'{TK_VAR_PREFIX}display_input_volume_level')
                 menubar.add_cascade(label='Options', menu=optionsmenu)
 
             top.config(menu=menubar)
 
-        with NullContext():
-            panels = tkinter.PanedWindow(top)
-            with NullContext():
-                right_panel_frame = tkinter.LabelFrame(panels, text='Channel users', padx=2, pady=2)
+        with NullContext(tkinter.PanedWindow(top)) as panels:
+            with NullContext(tkinter.LabelFrame(panels, text='Channel users', padx=2, pady=2)) as right_panel_frame:
                 users_list = tkinter.Listbox(right_panel_frame, listvariable=f'{TK_VAR_PREFIX}users_list', exportselection=0)
                 users_list.pack(fill=tkinter.BOTH, expand=True)
                 users_list.bind('<<ListboxSelect>>', lambda evt: self._gui_event_queue.put(('list_sel', 'users', evt.widget.curselection()[0])))
                 panels.add(right_panel_frame, minsize=120)
 
-            with NullContext():
-                left_panel_frame = tkinter.Frame(panels)
+            with NullContext(tkinter.Frame(panels)) as left_panel_frame:
+                self._add_volume_frame(left_panel_frame, 'user')
+                self._add_volume_frame(left_panel_frame, 'mic')
+                self._add_volume_frame(left_panel_frame, 'output')
 
-                with NullContext():
-                    self._add_volume_frame(left_panel_frame, 'user')
-                    self._add_volume_frame(left_panel_frame, 'mic')
-                    self._add_volume_frame(left_panel_frame, 'output')
-
-                with NullContext():
-                    settings_frame = tkinter.LabelFrame(left_panel_frame, text='Input settings')
-
-                    with NullContext():
-                        input_filter_type_frame = tkinter.Frame(settings_frame)
+                with NullContext(tkinter.LabelFrame(left_panel_frame, text='Input settings')) as settings_frame:
+                    with NullContext(tkinter.Frame(settings_frame)) as input_filter_type_frame:
                         tkinter.Radiobutton(input_filter_type_frame, text='Vox', variable=f'{TK_VAR_PREFIX}input_filter_type', value='vox').pack(side=tkinter.LEFT)
                         tkinter.Radiobutton(input_filter_type_frame, text='Push-to-Talk', variable=f'{TK_VAR_PREFIX}input_filter_type', value='ptt').pack(side=tkinter.LEFT)
                         input_filter_type_frame.pack(fill=tkinter.X)
 
-                    with NullContext():
-                        ptt_frame = tkinter.Frame(settings_frame)
+                    with NullContext(tkinter.Frame(settings_frame)) as ptt_frame:
                         tkinter.Label(ptt_frame, text='PTT hotkey').pack(side=tkinter.LEFT)
                         tkinter.Entry(ptt_frame, textvar=f'{TK_VAR_PREFIX}ptt_hotkey').pack(side=tkinter.LEFT)
                         ptt_frame.pack(fill=tkinter.X)
 
-                    with NullContext():
-                        vox_frame = tkinter.Frame(settings_frame)
+                    with NullContext(tkinter.Frame(settings_frame)) as vox_frame:
                         tkinter.Label(vox_frame, text='Vox threshold').pack(side=tkinter.LEFT)
                         tkinter.Scale(vox_frame, orient=tkinter.HORIZONTAL, showvalue=False, from_=0, to=3000, resolution=1, variable=f'{TK_VAR_PREFIX}vox_threshold').pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
                         vox_frame.pack(fill=tkinter.X)
 
-                    with NullContext():
-                        volume_bar_frame = tkinter.Frame(settings_frame)
+                    with NullContext(tkinter.Frame(settings_frame)) as volume_bar_frame:
                         tkinter.Label(volume_bar_frame, text='Input volume').pack(side=tkinter.LEFT)
                         tkinter.ttk.Progressbar(volume_bar_frame, variable=f'{TK_VAR_PREFIX}input_volume_level', maximum=0x7FFF).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
                         volume_bar_frame.pack(fill=tkinter.X)
 
                     settings_frame.pack(fill=tkinter.X)
 
-                with NullContext():
-                    connection_frame = tkinter.LabelFrame(left_panel_frame, text='Connection')
+                with NullContext(tkinter.LabelFrame(left_panel_frame, text='Connection')) as connection_frame:
                     tkinter.Label(connection_frame, text='Name:').pack(side=tkinter.LEFT)
                     tkinter.Entry(connection_frame, textvariable=f'{TK_VAR_PREFIX}user_name').pack(side=tkinter.LEFT, fill=tkinter.X)
                     tkinter.Button(connection_frame, text='Connect', command=self._make_click_callback_func('connect')).pack(side=tkinter.LEFT, padx=2, pady=2)
@@ -188,10 +180,11 @@ class SoundZGUI:
 
             panels.pack(fill=tkinter.BOTH, expand=True)
 
+            top.minsize(width=sum(panels.panecget(panel, 'minsize') for panel in panels.panes()) + panels.cget('borderwidth') + panels.cget('sashpad'), height=312)
+
         top.setvar(f'{TK_VAR_PREFIX}input_filter_type', 'vox')
         top.setvar(f'{TK_VAR_PREFIX}statusbar_text', 'Offline')
 
-        top.minsize(width=sum(panels.panecget(panel, 'minsize') for panel in panels.panes()) + panels.cget('borderwidth') + panels.cget('sashpad'), height=312)
         top.focus_force()
         if not show:
             top.withdraw()
@@ -254,6 +247,13 @@ def db2gain(db):
     return 10 ** (db / 20)
 
 
+def play_sound(fn):
+    try:
+        play_wave_file_async(fn)
+    except Exception as e:
+        print(f'ERROR in play_sound! {e}')
+
+
 def main():
     settings = SettingsManager()
 
@@ -281,6 +281,11 @@ def main():
         gui_list_ids_by_client_id.update({u.client_id: n for n, u in enumerate(new_sorted_list)})
         users_by_gui_list_id.clear()
         users_by_gui_list_id.update({n: u for n, u in enumerate(new_sorted_list)})
+
+        if event == 'join':
+            play_sound(JOIN_WAVE_FILE)
+        elif event == 'left':
+            play_sound(LEAVE_WAVE_FILE)
 
     def display_input_volume_level(vol):
         if last_volume_level_update[0] + 0.1 < time.time():
@@ -319,6 +324,7 @@ def main():
                             volume_measure = MeasureVolumeCallback(client.audio_input, display_input_volume_level)
                         client.audio_input.add_callback(display_is_transmitting, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL)
                         gui['statusbar_text'] = 'Online'
+                        play_sound(CONNECT_WAVE_FILE)
                     except Exception as err:
                         if client is not None:
                             client.stop()
@@ -328,6 +334,7 @@ def main():
                         gui['users_list'] = []
                         gui_list_ids_by_client_id = {}
                         users_by_gui_list_id = {}
+                        play_sound(DISCONNECT_WAVE_FILE)
 
             elif name == 'disconnect':
                 if client is not None:
@@ -339,6 +346,7 @@ def main():
                     gui['users_list'] = []
                     gui_list_ids_by_client_id = {}
                     users_by_gui_list_id = {}
+                    play_sound(DISCONNECT_WAVE_FILE)
 
             elif name == 'set_server_address':
                 _temp_root = tkinter.Tk()

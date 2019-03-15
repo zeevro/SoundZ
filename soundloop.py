@@ -24,10 +24,10 @@ def audio_stream_callback(in_data, frame_count, time_info, status_flags):
 
 def main():
     global volume_factor
-    PyAudio().open(SAMPLE_RATE, CHANNELS, SAMPLE_FORMAT, input=True, output=True, stream_callback=audio_stream_callback, start=True)
+    stream = PyAudio().open(SAMPLE_RATE, CHANNELS, SAMPLE_FORMAT, input=True, output=True, stream_callback=audio_stream_callback, start=True)
 
     try:
-        while 1:
+        while stream.is_active():
             volume_factor = float(input('Volume factor: '))
             #time.sleep(10)
     except (KeyboardInterrupt, SystemExit):

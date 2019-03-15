@@ -2,8 +2,10 @@
 import audioop
 import time
 import pyaudio
+import wave
 from operator import itemgetter
 from enum import Enum
+from contextlib import closing
 
 
 try:
@@ -33,11 +35,41 @@ AUDIO_INPUT_CALLBACK_TYPE_EFFECT = 3
 AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL = 4
 AUDIO_INPUT_CALLBACK_TYPE_TRANSPORT = 5
 
+WAVE_FILE_FRAMES_PER_CHUNK = 1024
+
 
 sample_format_names = {getattr(pyaudio, f'pa{name}'): name for name in ['Int8', 'UInt8', 'Int16', 'Int24', 'Int32', 'Float32']}
 
 
 g_pyaudio = pyaudio.PyAudio()
+
+
+def play_wave_file(filename):
+    with wave.open(filename) as wf:
+        chunk_size = (wf.getnchannels() * wf.getsampwidth()) * WAVE_FILE_FRAMES_PER_CHUNK
+        with closing(g_pyaudio.open(wf.getframerate(), wf.getnchannels(), pyaudio.get_format_from_width(wf.getsampwidth()), output=True)) as player:
+            data = bytes(chunk_size)
+            while len(data) == chunk_size:
+                data = wf.readframes(1024)
+                player.write(data)
+
+
+def play_wave_file_async(filename):
+    wf = wave.open(filename)
+
+    chunk_size = (wf.getnchannels() * wf.getsampwidth()) * WAVE_FILE_FRAMES_PER_CHUNK
+
+    def stream_callback(in_data, frame_count, time_info, status_flags):
+        data = wf.readframes(1024)
+        if len(data) < chunk_size:
+            wf.close()
+            res = pyaudio.paAbort
+            data += bytes(chunk_size - len(data))
+        else:
+            res = pyaudio.paContinue
+        return data, res
+
+    return g_pyaudio.open(wf.getframerate(), wf.getnchannels(), pyaudio.get_format_from_width(wf.getsampwidth()), output=True, stream_callback=stream_callback, start=True)
 
 
 class Audio:
