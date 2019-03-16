@@ -1,0 +1,4 @@
+connected.wav - https://freesound.org/people/djm62/sounds/318968/
+disconnected.wav - https://freesound.org/people/Isaac200000/sounds/188013/
+user_joined.wav - https://freesound.org/people/JFRecords/sounds/420518/
+user_left.wav - https://freesound.org/people/JFRecords/sounds/420517/
