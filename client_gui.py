@@ -74,7 +74,7 @@ class SettingsManager(object):
         return iter(self._get_data().items())
 
 
-class NullContext:
+class DummyContext:
     '''Just an easy way to introduce indentation into code in order to improve readability'''
 
     def __init__(self, thing=None):
@@ -83,7 +83,7 @@ class NullContext:
     def __enter__(self):
         return self._thing
 
-    def __exit__(self, *a, **kw):
+    def __exit__(self, exc_typ, exc, tb):
         pass
 
 
@@ -118,58 +118,58 @@ class SoundZGUI:
         top = tkinter.Tk()
         top.title('SoundZ chat')
 
-        with NullContext(tkinter.Frame(top)) as statusbar_frame:
+        with DummyContext(tkinter.Frame(top)) as statusbar_frame:
             tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_tx', bd=1, relief=tkinter.SUNKEN, width=2).pack(side=tkinter.LEFT)
             tkinter.Label(statusbar_frame, textvariable=f'{TK_VAR_PREFIX}statusbar_text', bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
             statusbar_frame.pack(side=tkinter.BOTTOM, fill=tkinter.X)
 
-        with NullContext(tkinter.Menu(top)) as menubar:
-            with NullContext(tkinter.Menu(menubar, tearoff=0)) as servermenu:
+        with DummyContext(tkinter.Menu(top)) as menubar:
+            with DummyContext(tkinter.Menu(menubar, tearoff=0)) as servermenu:
                 servermenu.add_command(label='Address...', command=self._make_click_callback_func('set_server_address'))
                 menubar.add_cascade(label='Server', menu=servermenu)
 
-            with NullContext(tkinter.Menu(menubar, tearoff=0)) as optionsmenu:
+            with DummyContext(tkinter.Menu(menubar, tearoff=0)) as optionsmenu:
                 optionsmenu.add_checkbutton(label='Display volume level', variable=f'{TK_VAR_PREFIX}display_input_volume_level')
                 menubar.add_cascade(label='Options', menu=optionsmenu)
 
             top.config(menu=menubar)
 
-        with NullContext(tkinter.PanedWindow(top)) as panels:
-            with NullContext(tkinter.LabelFrame(panels, text='Channel users', padx=2, pady=2)) as right_panel_frame:
+        with DummyContext(tkinter.PanedWindow(top)) as panels:
+            with DummyContext(tkinter.LabelFrame(panels, text='Channel users', padx=2, pady=2)) as right_panel_frame:
                 users_list = tkinter.Listbox(right_panel_frame, listvariable=f'{TK_VAR_PREFIX}users_list', exportselection=0)
                 users_list.pack(fill=tkinter.BOTH, expand=True)
                 users_list.bind('<<ListboxSelect>>', lambda evt: self._gui_event_queue.put(('list_sel', 'users', evt.widget.curselection()[0])))
                 panels.add(right_panel_frame, minsize=120)
 
-            with NullContext(tkinter.Frame(panels)) as left_panel_frame:
+            with DummyContext(tkinter.Frame(panels)) as left_panel_frame:
                 self._add_volume_frame(left_panel_frame, 'user')
                 self._add_volume_frame(left_panel_frame, 'mic')
                 self._add_volume_frame(left_panel_frame, 'output')
 
-                with NullContext(tkinter.LabelFrame(left_panel_frame, text='Input settings')) as settings_frame:
-                    with NullContext(tkinter.Frame(settings_frame)) as input_filter_type_frame:
+                with DummyContext(tkinter.LabelFrame(left_panel_frame, text='Input settings')) as settings_frame:
+                    with DummyContext(tkinter.Frame(settings_frame)) as input_filter_type_frame:
                         tkinter.Radiobutton(input_filter_type_frame, text='Vox', variable=f'{TK_VAR_PREFIX}input_filter_type', value='vox').pack(side=tkinter.LEFT)
                         tkinter.Radiobutton(input_filter_type_frame, text='Push-to-Talk', variable=f'{TK_VAR_PREFIX}input_filter_type', value='ptt').pack(side=tkinter.LEFT)
                         input_filter_type_frame.pack(fill=tkinter.X)
 
-                    with NullContext(tkinter.Frame(settings_frame)) as ptt_frame:
+                    with DummyContext(tkinter.Frame(settings_frame)) as ptt_frame:
                         tkinter.Label(ptt_frame, text='PTT hotkey').pack(side=tkinter.LEFT)
                         tkinter.Entry(ptt_frame, textvar=f'{TK_VAR_PREFIX}ptt_hotkey').pack(side=tkinter.LEFT)
                         ptt_frame.pack(fill=tkinter.X)
 
-                    with NullContext(tkinter.Frame(settings_frame)) as vox_frame:
+                    with DummyContext(tkinter.Frame(settings_frame)) as vox_frame:
                         tkinter.Label(vox_frame, text='Vox threshold').pack(side=tkinter.LEFT)
                         tkinter.Scale(vox_frame, orient=tkinter.HORIZONTAL, showvalue=False, from_=0, to=3000, resolution=1, variable=f'{TK_VAR_PREFIX}vox_threshold').pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
                         vox_frame.pack(fill=tkinter.X)
 
-                    with NullContext(tkinter.Frame(settings_frame)) as volume_bar_frame:
+                    with DummyContext(tkinter.Frame(settings_frame)) as volume_bar_frame:
                         tkinter.Label(volume_bar_frame, text='Input volume').pack(side=tkinter.LEFT)
                         tkinter.ttk.Progressbar(volume_bar_frame, variable=f'{TK_VAR_PREFIX}input_volume_level', maximum=0x7FFF).pack(side=tkinter.LEFT, fill=tkinter.X, expand=True)
                         volume_bar_frame.pack(fill=tkinter.X)
 
                     settings_frame.pack(fill=tkinter.X)
 
-                with NullContext(tkinter.LabelFrame(left_panel_frame, text='Connection')) as connection_frame:
+                with DummyContext(tkinter.LabelFrame(left_panel_frame, text='Connection')) as connection_frame:
                     tkinter.Label(connection_frame, text='Name:').pack(side=tkinter.LEFT)
                     tkinter.Entry(connection_frame, textvariable=f'{TK_VAR_PREFIX}user_name').pack(side=tkinter.LEFT, fill=tkinter.X)
                     tkinter.Button(connection_frame, text='Connect', command=self._make_click_callback_func('connect')).pack(side=tkinter.LEFT, padx=2, pady=2)
