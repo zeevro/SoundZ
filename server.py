@@ -25,12 +25,6 @@ class Client:
         self.name = None
         self.in_channel = False
         self.udp_addr_info = None
-        #self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        #self.udp_socket.setsockopt(socket.SO_REUSEADDR)
-        #self.udp_socket.bind(('0.0.0.0', SERVER_PORT))
-
-    #def start(self):
-    #    pass
 
 
 class ClientManager:
@@ -118,7 +112,6 @@ class ClientManager:
             if cid == client_id:
                 c.udp_addr_info = addr_info
                 continue
-            #c.udp_socket.send()
             yield c.udp_addr_info
 
 
