@@ -115,6 +115,9 @@ class SoundZGUI:
         frame.pack(fill=tkinter.X)
 
     def _create_window(self, show: bool):
+        # pylint thinks that DummyContext.__enter__ returns a DummyContext
+        # pylint: disable=no-member
+
         top = tkinter.Tk()
         top.title('SoundZ chat')
 
