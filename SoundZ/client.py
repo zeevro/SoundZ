@@ -12,7 +12,7 @@ import time
 from .audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter, DEFAULT_VOX_THRESHOLD
 
 # Help opuslib find opus.dll
-os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']  #pylint: disable=no-member,protected-access
+os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else os.path.join(os.path.dirname(__file__), '..')) + os.pathsep + os.environ['PATH']  #pylint: disable=no-member,protected-access
 import opuslib  #pylint: disable=wrong-import-position,wrong-import-order
 
 try:

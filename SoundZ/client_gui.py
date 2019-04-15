@@ -23,7 +23,7 @@ from .audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolum
 
 TK_VAR_PREFIX = 'sndz_'
 
-SOUNDS_DIR = os.path.join(os.path.dirname(__file__), 'sounds')
+SOUNDS_DIR = os.path.join(os.path.dirname(__file__), '..', 'sounds')
 CONNECT_WAVE_FILE = os.path.join(SOUNDS_DIR, 'connected.wav')
 DISCONNECT_WAVE_FILE = os.path.join(SOUNDS_DIR, 'disconnected.wav')
 JOIN_WAVE_FILE = os.path.join(SOUNDS_DIR, 'user_joined.wav')
