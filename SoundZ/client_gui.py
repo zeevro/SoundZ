@@ -9,9 +9,10 @@ import os
 import json
 import time
 
-from client import SoundZClient, DummyUser
-from soundz_audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER, play_wave_file_async
 import appdirs
+
+from .client import SoundZClient, DummyUser
+from .audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER, play_wave_file_async
 
 
 # TODO: Fix the issues with the server address input dialog

@@ -1,4 +1,4 @@
-﻿from soundz import *
+﻿from SoundZ.streams import *
 
 from binascii import hexlify
 import queue

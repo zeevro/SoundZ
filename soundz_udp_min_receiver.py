@@ -1,4 +1,4 @@
-﻿from soundz import SoundZMinimalStream, UdpSocketIO, Audio, DEFAULT_PORT
+﻿from SoundZ.streams import SoundZMinimalStream, UdpSocketIO, Audio, DEFAULT_PORT
 import threading
 
 

@@ -1,4 +1,4 @@
-﻿from soundz import Audio, UdpSocketIO
+﻿from SoundZ.streams import Audio, UdpSocketIO
 
 import queue
 import time
