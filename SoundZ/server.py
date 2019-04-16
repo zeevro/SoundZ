@@ -204,6 +204,8 @@ class ClientManagerRequestHandler(StreamRequestHandler):
 
 
 class TCPServer(ThreadingTCPServer):
+    daemon_threads = True
+
     def __init__(self, client_manager: ClientManager):
         super().__init__(('0.0.0.0', SERVER_PORT), ClientManagerRequestHandler)
         self.client_manager = client_manager
@@ -240,13 +242,13 @@ class UDPServer:
 def main():
     client_manager = ClientManager()
 
-    tcp_server = TCPServer(client_manager)
-    udp_server = UDPServer(client_manager)
-
-    server_threads = [threading.Thread(target=server.serve_forever) for server in (tcp_server, udp_server)]
-    for thread in server_threads:
+    server_threads = []
+    for srv_cls in [TCPServer, UDPServer]:
+        srv = srv_cls(client_manager)
+        thread = threading.Thread(target=srv.serve_forever)
         thread.daemon = True
         thread.start()
+        server_threads.append(thread)
 
     print('Server started!')
     try:

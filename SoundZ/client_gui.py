@@ -8,6 +8,7 @@ import math
 import os
 import json
 import time
+import sys
 
 import appdirs
 
@@ -208,6 +209,8 @@ class SoundZGUI:
         top.mainloop()
 
         self._gui_event_queue.put(None)
+
+        sys.exit()
 
     def start(self, show=True, wait_ready=True):
         self._gui_thread = threading.Thread(name='SoundZGUI.gui', target=self._create_window, args=(show,))
