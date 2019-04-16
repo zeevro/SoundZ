@@ -91,10 +91,10 @@ class AbstractSoundZStream:
             self.write_packet(packet)
 
     def iter_packets(self):
-        p = self.read_packet()
+        p = self.read_packet()  # pylint: disable=no-member
         while p:
             yield p
-            p = self.read_packet()
+            p = self.read_packet()  # pylint: disable=no-member
 
     __iter__ = iter_packets
 
@@ -113,7 +113,7 @@ class DatagramReadPacketMixin:
         while 1:
             try:
                 ret = self._packet2frame(self._io.read())
-                self._packet_count += 1
+                self._packet_count += 1  # pylint: disable=no-member
                 break
             except SkipPacket:
                 pass

@@ -9,7 +9,8 @@ import sys
 import threading
 import time
 
-from soundz_audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
+from SoundZ.audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
+from SoundZ.streams import UdpSocketIO
 
 # Help opuslib find opus.dll
 os.environ['PATH'] = (sys._MEIPASS if hasattr(sys, 'frozen') else '.') + os.pathsep + os.environ['PATH']  #pylint: disable=no-member

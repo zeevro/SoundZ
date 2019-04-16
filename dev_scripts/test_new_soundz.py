@@ -1,4 +1,5 @@
-﻿from SoundZ.streams import Audio, UdpSocketIO
+﻿from SoundZ.streams import UdpSocketIO
+from SoundZ.audio import Audio
 
 import queue
 import time
@@ -37,7 +38,7 @@ def test_pipe(cls, file_header=False):
         sender_stream.write_file_header()
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_stream)
+    audio.get_params_from_stream(sender_stream)
     audio.add_callback(sender_stream.write_packet)
     audio.start_capture()
 
@@ -60,7 +61,7 @@ def test_with_file(cls, record=True, playback=True):
             stream = cls(file)
 
             audio = Audio(input_needed=True)
-            audio.get_params_from_soundz(stream)
+            audio.get_params_from_stream(stream)
             audio.add_callback(stream.write_packet)
             audio.start_capture()
 
@@ -74,7 +75,7 @@ def test_with_file(cls, record=True, playback=True):
             stream = cls(file)
 
             audio = Audio(output_needed=True)
-            audio.get_params_from_soundz(stream)
+            audio.get_params_from_stream(stream)
 
             for packet in stream:
                 audio.playback(packet)
@@ -94,7 +95,7 @@ def test_udp(cls, file_header=False):
         sender_stream.write_file_header()
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_stream)
+    audio.get_params_from_stream(sender_stream)
     audio.add_callback(sender_stream.write_packet)
     audio.start_capture()
 

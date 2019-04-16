@@ -1,4 +1,0 @@
-pyaudio
-opuslib
-appdirs
-pynput

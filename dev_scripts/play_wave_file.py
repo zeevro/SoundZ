@@ -17,7 +17,7 @@ def play_wave_file(filename):
             data = bytes(chunk_size)
             while len(data) == chunk_size:
                 data = wf.readframes(1024)
-                player.write(data)
+                player.write(data)  # pylint: disable=no-member
 
 
 def play_wave_file_async(filename):

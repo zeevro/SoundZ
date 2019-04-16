@@ -51,7 +51,7 @@ def play_wave_file(filename):
             data = bytes(chunk_size)
             while len(data) == chunk_size:
                 data = wf.readframes(1024)
-                player.write(data)
+                player.write(data)  # pylint: disable=no-member
 
 
 def play_wave_file_async(filename):
@@ -107,11 +107,11 @@ class Audio:
                     print(f'ERROR in Audio.callback! {e.__class__.__name__}: {e}')
         return (None, 0)
 
-    def get_params_from_stream(self, soundz):
-        self.sample_rate = soundz.sample_rate
-        self.channels = soundz.channels
-        self.samples_per_frame = soundz.frame_samples
-        self.sample_format = soundz.sample_format
+    def get_params_from_stream(self, stream):
+        self.sample_rate = stream.sample_rate
+        self.channels = stream.channels
+        self.samples_per_frame = stream.samples_per_frame
+        self.sample_format = stream.sample_format
 
         return self
 
@@ -144,14 +144,14 @@ class Audio:
         return self
 
     def remove_callback(self, callback_func):
-        for n, (type_, func) in enumerate(self.callback_chain):
+        for n, (type_, func) in enumerate(self.callback_chain):  # pylint: disable=unused-variable
             if func == callback_func:
                 del self.callback_chain[n]
                 break
 
     def remove_callbacks_by_type(self, callback_type):
         to_remove = []
-        for n, (type_, func) in enumerate(self.callback_chain):
+        for n, (type_, func) in enumerate(self.callback_chain):  # pylint: disable=unused-variable
             if type_ == callback_type:
                 to_remove.append(n)
         for i in to_remove:

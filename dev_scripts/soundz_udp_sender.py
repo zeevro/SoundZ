@@ -1,15 +1,16 @@
-﻿import soundz as sz
+﻿import SoundZ.streams as sz
+import SoundZ.audio as audio
 import pynput
 
 
 class SoundZUdpSender:
     def __init__(self, ip, port=sz.DEFAULT_PORT, compressed=sz.DEFAULT_COMPRESSED, ptt_key=None):
         self._stream = sz.SoundZSyncingStreamDatagram(sz.UdpSocketIO().tx(ip, port), compressed=compressed)
-        self._audio = sz.Audio(input_needed=True).get_params_from_soundz(self._stream).add_callback(self._stream.write_packet)
+        self._audio = audio.Audio(input_needed=True).get_params_from_stream(self._stream).add_callback(self._stream.write_packet)
         if ptt_key is None:
-            self._input_filter = sz.VoxAudioInputFilter(self._audio)
+            self._input_filter = audio.VoxAudioInputFilter(self._audio)
         else:
-            self._input_filter = sz.PushToTalkAudioInputFilter(self._audio, ptt_key)
+            self._input_filter = audio.PushToTalkAudioInputFilter(self._audio, ptt_key)
 
     def start(self):
         self._audio.start_capture()
@@ -36,7 +37,7 @@ def get_ptt_key():
     keyboard_listener.start()
     keyboard_listener.join()
 
-    selected_key, = key_l
+    selected_key, = key_l  # pylint: disable=unbalanced-tuple-unpacking
 
     if selected_key == pynput.keyboard.Key.esc:
         print('Cancelled.')

@@ -1,4 +1,5 @@
-﻿from SoundZ.streams import *
+﻿from SoundZ.streams import *  # pylint: disable=unused-wildcard-import
+from SoundZ.audio import *  # pylint: disable=unused-wildcard-import
 
 from binascii import hexlify
 import queue
@@ -11,7 +12,7 @@ class DummyAudio:
     def __init__(self, *a, **kw):
         pass
 
-    def get_params_from_soundz(self, soundz):
+    def get_params_from_stream(self, soundz):
         return self
 
     def playback(self, *a, **kw):
@@ -62,7 +63,7 @@ def test_record_write(fn='test.sndz', compressed=True):
 
     with Audio(input_needed=True) as ac:
         ac.initialize()
-        print(f'Input stream specs: Sample rate: {ac.sample_rate / 1000} kHz, {_test_channels_str(ac.channels)}, {ac.frame_samples} samples per frame, {pyaudio.get_sample_size(ac.sample_format)} bytes per sample.')
+        print(f'Input stream specs: Sample rate: {ac.sample_rate / 1000} kHz, {_test_channels_str(ac.channels)}, {ac.samples_per_frame} samples per frame, {pyaudio.get_sample_size(ac.sample_format)} bytes per sample.')
         with open(fn, 'wb') as f:
             sf = SoundZFileStream(f, compressed=compressed)
             sf.get_params_from_audio(ac)
@@ -76,7 +77,7 @@ def test_record_write(fn='test.sndz', compressed=True):
             ac.stop_capture()
             print('OK')
 
-            print(f'Recorded {sf.packet_count} packets with {sf.packet_count * sf.frame_samples} samples for a total duration of {sf.current_timestamp} s')
+            print(f'Recorded {sf.packet_count} packets with {sf.packet_count * sf.samples_per_frame} samples for a total duration of {sf.current_timestamp} s')
 
 
 def test_read_write(source_fn, dest_fn, compressed=None):
@@ -84,14 +85,14 @@ def test_read_write(source_fn, dest_fn, compressed=None):
 
     with open(source_fn, 'rb') as rf:
         rsf = SoundZFileStream.from_file(rf)
-        print(f'File specs: Sample rate: {rsf.sample_rate / 1000} kHz, {_test_channels_str(rsf.channels)}, Frame size: {rsf.frame_samples} samples{", Compressed" if rsf.compressed else ""}.')
+        print(f'File specs: Sample rate: {rsf.sample_rate / 1000} kHz, {_test_channels_str(rsf.channels)}, Frame size: {rsf.samples_per_frame} samples{", Compressed" if rsf.compressed else ""}.')
 
         if compressed is None:
             compressed = rsf.compressed
 
         with open(dest_fn, 'wb') as wf:
             wsf = SoundZFileStream(wf)
-            wsf.get_params_from_soundz(rsf)
+            wsf.get_params_from_stream(rsf)
             wsf.compressed = compressed
             wsf.write_file_header()
             wsf.write_packets(rsf)
@@ -106,9 +107,9 @@ def test_read(fn='test.sndz', playback=False):
 
     with open(fn, 'rb') as f:
         sf = SoundZFileStream.from_file(f)
-        print(f'File specs: Sample rate: {sf.sample_rate / 1000} kHz, {_test_channels_str(sf.channels)}, {sf.frame_samples} samples per frame, {pyaudio.get_sample_size(sf.sample_format)} bytes per sample{", Compressed" if sf.compressed else ""}.')
+        print(f'File specs: Sample rate: {sf.sample_rate / 1000} kHz, {_test_channels_str(sf.channels)}, {sf.samples_per_frame} samples per frame, {pyaudio.get_sample_size(sf.sample_format)} bytes per sample{", Compressed" if sf.compressed else ""}.')
 
-        with audio_class(output_needed=True).get_params_from_soundz(sf) as ac:
+        with audio_class(output_needed=True).get_params_from_stream(sf) as ac:
             ts = 0
             start_time = time.time()
             for packet in sf:
@@ -139,7 +140,7 @@ def test_tcp():
     receiver_sndz = SoundZFileStream.from_file(TcpSocketWrapperIO(receiver))
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_sndz)
+    audio.get_params_from_stream(sender_sndz)
     audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
@@ -166,7 +167,7 @@ def test_pipe():
     receiver_sndz = SoundZFileStream.from_file(pipe)
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_sndz)
+    audio.get_params_from_stream(sender_sndz)
     audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
@@ -189,7 +190,7 @@ def test_syncing_stream_pipe():
     sender_sndz = SoundZSyncingStream(pipe)
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_sndz)
+    audio.get_params_from_stream(sender_sndz)
     audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 
@@ -210,7 +211,7 @@ def test_syncing_stream_udp():
     sender_sndz = SoundZSyncingStreamDatagram(UdpSocketIO().sending('127.0.0.1'))
 
     audio = Audio(input_needed=True, output_needed=True)
-    audio.get_params_from_soundz(sender_sndz)
+    audio.get_params_from_stream(sender_sndz)
     audio.add_callback(sender_sndz.write_packet)
     audio.start_capture()
 

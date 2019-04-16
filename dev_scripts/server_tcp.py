@@ -20,6 +20,99 @@ AUDIO_PARAMS = {'sample_rate': FRAME_RATE, 'channels': CHANNELS, 'samples_per_fr
 secret_key = 'Rn7tEf1PKXrmHynD1QBUyluoQJDVZEbNSn7tZ0g5a8MipJEetQ'
 
 
+class Client:
+    def __init__(self, handler):
+        self.handler = handler
+        self.name = None
+        self.in_channel = False
+
+
+class ClientManager:
+    def __init__(self):
+        self._clients = {}
+
+    def _broadcast(self, source_client_id: int, command: bytes, extra_payload: str=None):
+        if source_client_id is None:
+            for c in self._clients:
+                c.handler.write_frame(command, extra_payload)
+        else:
+            if isinstance(extra_payload, str):
+                extra_payload = extra_payload.encode()
+            payload = source_client_id.to_bytes(2, 'big') + (extra_payload or b'')
+            for cid, c in self._clients.items():
+                if cid == source_client_id:
+                    continue
+                c.handler.write_frame(command, payload)
+
+    @property
+    def taken_ids(self):
+        return (cid for cid in self._clients)
+
+    @property
+    def taken_names(self):
+        return (c.name for c in self._clients.values())
+
+    @property
+    def channel_user_list(self):
+        return ((cid, c.name) for cid, c in self._clients.items() if c.in_channel)
+
+    def new(self, handler: StreamRequestHandler) -> Tuple[bool, int]:
+        if len(self._clients) >= 0xFFFF:
+            return False, 'Server is full'
+        if not self._clients:
+            new_id = 0
+        else:
+            for new_id, i in enumerate(sorted(self.taken_ids)):
+                if new_id != i:
+                    break
+            else:
+                new_id += 1
+        self._clients[new_id] = Client(handler)
+        return True, new_id.to_bytes(2, 'big')
+
+    def remove(self, client_id: int) -> Tuple[bool, str]:
+        self.leave_channel(client_id)
+        if self._clients.pop(client_id, None) is None:
+            return False, 'Nonexistent client id'
+        return True, None
+
+    def set_name(self, client_id: int, name: str) -> Tuple[bool, str]:
+        c = self._clients[client_id]
+        if not name:
+            return False, 'Empty name'
+        if name == c.name:
+            return False, 'Same name'
+        if name in self.taken_names:
+            return False, 'Already taken'
+        self._clients[client_id].name = name
+        self._broadcast(client_id, b'Name', name)
+        return True, None
+
+    def list_channel_users(self, client_id: int, channel: str) -> Tuple[bool, str]:
+        return True, json.dumps(list(self.channel_user_list), separators=(',', ':'))
+
+    def join_channel(self, client_id: int, channel: None) -> Tuple[bool, str]:
+        c = self._clients[client_id]
+        if not c.name:
+            return False, 'Empty name'
+        if c.in_channel:
+            return False, 'Already in channel'
+        c.in_channel = True
+        self._broadcast(client_id, b'JoinedChannel')
+        return True, None
+
+    def leave_channel(self, client_id: int) -> Tuple[bool, str]:
+        c = self._clients[client_id]
+        if not c.in_channel:
+            return False, 'Not in channel'
+        c.in_channel = False
+        self._broadcast(client_id, b'LeftChannel')
+        return True, None
+
+    def audio_received(self, client_id: int, payload: bytes) -> None:
+        self._broadcast(client_id, b'', payload)
+
+
 class ClientManagerRequestHandler(StreamRequestHandler):
     def setup(self):
         super().setup()
@@ -116,99 +209,6 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         else:
             success, payload = client_manager.leave_channel(self._client_id)
         return (b'LeaveOk' if success else b'BadLeave', payload)
-
-
-class Client:
-    def __init__(self, handler):
-        self.handler = handler
-        self.name = None
-        self.in_channel = False
-
-
-class ClientManager:
-    def __init__(self):
-        self._clients = {}
-
-    def _broadcast(self, source_client_id: int, command: bytes, extra_payload: str=None):
-        if source_client_id is None:
-            for c in self._clients:
-                c.handler.write_frame(command, extra_payload)
-        else:
-            if isinstance(extra_payload, str):
-                extra_payload = extra_payload.encode()
-            payload = source_client_id.to_bytes(2, 'big') + (extra_payload or b'')
-            for cid, c in self._clients.items():
-                if cid == source_client_id:
-                    continue
-                c.handler.write_frame(command, payload)
-
-    @property
-    def taken_ids(self):
-        return (cid for cid in self._clients)
-
-    @property
-    def taken_names(self):
-        return (c.name for c in self._clients.values())
-
-    @property
-    def channel_user_list(self):
-        return ((cid, c.name) for cid, c in self._clients.items() if c.in_channel)
-
-    def new(self, handler: StreamRequestHandler) -> Tuple[bool, int]:
-        if len(self._clients) >= 0xFFFF:
-            return False, 'Server is full'
-        if not self._clients:
-            new_id = 0
-        else:
-            for new_id, i in enumerate(sorted(self.taken_ids)):
-                if new_id != i:
-                    break
-            else:
-                new_id += 1
-        self._clients[new_id] = Client(handler)
-        return True, new_id.to_bytes(2, 'big')
-
-    def remove(self, client_id: int) -> Tuple[bool, str]:
-        self.leave_channel(client_id)
-        if self._clients.pop(client_id, None) is None:
-            return False, 'Nonexistent client id'
-        return True, None
-
-    def set_name(self, client_id: int, name: str) -> Tuple[bool, str]:
-        c = self._clients[client_id]
-        if not name:
-            return False, 'Empty name'
-        if name == c.name:
-            return False, 'Same name'
-        if name in self.taken_names:
-            return False, 'Already taken'
-        self._clients[client_id].name = name
-        self._broadcast(client_id, b'Name', name)
-        return True, None
-
-    def list_channel_users(self, client_id: int, channel: str) -> Tuple[bool, str]:
-        return True, json.dumps(list(self.channel_user_list), separators=(',', ':'))
-
-    def join_channel(self, client_id: int, channel: None) -> Tuple[bool, str]:
-        c = self._clients[client_id]
-        if not c.name:
-            return False, 'Empty name'
-        if c.in_channel:
-            return False, 'Already in channel'
-        c.in_channel = True
-        self._broadcast(client_id, b'JoinedChannel')
-        return True, None
-
-    def leave_channel(self, client_id: int) -> Tuple[bool, str]:
-        c = self._clients[client_id]
-        if not c.in_channel:
-            return False, 'Not in channel'
-        c.in_channel = False
-        self._broadcast(client_id, b'LeftChannel')
-        return True, None
-
-    def audio_received(self, client_id: int, payload: bytes) -> None:
-        self._broadcast(client_id, b'', payload)
 
 
 client_manager = ClientManager()
