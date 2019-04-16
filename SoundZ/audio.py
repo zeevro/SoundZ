@@ -348,7 +348,7 @@ if _have_pynput:
                 self._listener_started = True
             return self._breached
 else:
-    class PushToTalkAudioInputFilter:
+    class PushToTalkAudioInputFilter(AudioInputFilterBase):
         def __init__(self, *a, **kw):
             raise NotImplementedError()
 
