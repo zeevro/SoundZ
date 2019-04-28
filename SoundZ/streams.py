@@ -5,13 +5,7 @@ import socket
 import time
 import os
 
-try:
-    import opuslib
-except ImportError:
-    # Help poor opuslib to fine opus.dll
-    if os.name == 'nt':
-        os.environ['PATH'] = os.path.dirname(__file__) + os.pathsep + os.environ['PATH']
-    import opuslib
+from ._opuslib import opuslib
 
 
 # TODO: Calculate samples per frame so opuslib is happy with frame duration

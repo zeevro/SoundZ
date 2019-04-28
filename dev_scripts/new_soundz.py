@@ -1,6 +1,7 @@
 ﻿import pyaudio
-import opuslib
 import struct
+
+from SoundZ._opuslib import opuslib
 
 
 DEFAULT_SAMPLE_RATE = 12000
