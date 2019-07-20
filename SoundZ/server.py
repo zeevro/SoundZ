@@ -134,7 +134,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
                 break
 
             command = command.decode()
-            handler = getattr(self, f'handle_{command}', None)
+            handler = getattr(self, 'handle_{}'.format(command), None)
             if handler is None:
                 self.write_frame(b'BadCommand', command)
                 continue
@@ -151,7 +151,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
             return None, None
         frame = self.request.recv(frame_size)                     # Frame data
         command, payload_bytes = frame[1:frame[0] + 1], frame[frame[0] + 1:]
-        print(f'{"???" if self._client_id is None else self._client_id:3} <-- {command.decode()} {payload_bytes}')
+        print('{:3} <-- {} {}'.format("???" if self._client_id is None else self._client_id, command.decode(), payload_bytes))
         return command, payload_bytes.decode() if payload_bytes else None
 
     def write_frame(self, command: bytes, payload: bytes = None) -> None:
@@ -160,7 +160,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         elif isinstance(payload, str):
             payload = payload.encode()
         self.request.send((1 + len(command) + len(payload)).to_bytes(3, 'big'))  # Frame size
-        print(f'{"???" if self._client_id is None else self._client_id:3} --> {command.decode()} {payload}')
+        print('{:3} --> {} {}'.format("???" if self._client_id is None else self._client_id, command.decode(), payload))
         self.request.send(len(command).to_bytes(1, 'big') + command + payload)   # Frame data
 
     def handle_GetAudioParams(self, payload: str) -> Tuple[bytes, str]:  #pylint: disable=unused-argument
@@ -236,7 +236,7 @@ class UDPServer:
                     try:
                         tx_sock.sendto(frame, tx_addr_info)
                     except Exception as e:
-                        print(f'ERROR in UDPServer! {e.__class__.__name__}: {e}')
+                        print('ERROR in UDPServer! {}: {}'.format(e.__class__.__name__, e))
 
 
 def main():

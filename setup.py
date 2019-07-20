@@ -19,7 +19,7 @@ def find_dll_in_path(fn, additional_paths=None):
 def is_opuslib_ok():
     try:
         import opuslib
-    except ModuleNotFoundError:
+    except ImportError:
         return find_dll_in_path('opus')
     except:
         return False
@@ -30,7 +30,7 @@ def get_opuslib_windows(output_path):
     is_64_bit = sys.maxsize > ((1 << 31) - 1)
     url = 'https://discord.foxbot.me/binaries/win{}/opus.dll'.format(64 if is_64_bit else 32)
 
-    print(f'Fetching {url}')
+    print('Fetching {}'.format(url))
     url_parts = urlsplit(url)
     conn_cls = {'http': HTTPConnection, 'https': HTTPSConnection}[url_parts.scheme]
     conn = conn_cls(url_parts.netloc, url_parts.port)
