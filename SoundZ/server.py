@@ -217,12 +217,7 @@ class UDPServer:
 
     def serve_forever(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(('0.0.0.0', SERVER_PORT))
-
-        tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        tx_sock.bind(('0.0.0.0', SERVER_PORT))
 
         while 1:
             try:
@@ -234,7 +229,7 @@ class UDPServer:
             for tx_addr_info in self.client_manager.audio_received(client_id, rx_addr_info):
                 if tx_addr_info is not None:
                     try:
-                        tx_sock.sendto(frame, tx_addr_info)
+                        sock.sendto(frame, tx_addr_info)
                     except Exception as e:
                         print('ERROR in UDPServer! {}: {}'.format(e.__class__.__name__, e))
 
