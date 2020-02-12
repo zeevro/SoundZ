@@ -1,5 +1,6 @@
-import socket
 import select
+import socket
+
 
 sock1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 print(f'sock1 = {sock1}')

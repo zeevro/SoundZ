@@ -1,19 +1,17 @@
-from typing import Tuple, Callable, Any
-import tkinter
-import tkinter.ttk
-import tkinter.simpledialog
-import threading
-import queue
 import math
 import os
-import json
-import time
+import queue
 import sys
+import threading
+import time
+import tkinter
+import tkinter.simpledialog
+import tkinter.ttk
 
 import appdirs
 
-from .client import SoundZClient, DummyUser
-from .audio import VoxAudioInputFilter, PushToTalkAudioInputFilter, MeasureVolumeCallback, AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, AUDIO_INPUT_CALLBACK_TYPE_FILTER, play_wave_file_async
+from .audio import AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, MeasureVolumeCallback, PushToTalkAudioInputFilter, VoxAudioInputFilter, play_wave_file_async
+from .client import DummyUser, SoundZClient
 
 
 # TODO: Fix the issues with the server address input dialog

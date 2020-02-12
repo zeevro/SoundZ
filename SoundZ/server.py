@@ -1,9 +1,9 @@
 ﻿from typing import Tuple, Iterable
-from socketserver import ThreadingTCPServer, StreamRequestHandler
-import threading
-import socket
 import json
+import socket
+import threading
 import time
+from socketserver import StreamRequestHandler, ThreadingTCPServer
 
 
 SERVER_PORT = 4452
@@ -139,7 +139,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
                 self.write_frame(b'BadCommand', command)
                 continue
 
-            self.write_frame(*handler(payload))
+            self.write_frame(*handler(payload))  # pylint: disable=not-callable
 
     def finish(self):
         if self._client_id is not None:
@@ -163,7 +163,8 @@ class ClientManagerRequestHandler(StreamRequestHandler):
         print('{:3} --> {} {}'.format("???" if self._client_id is None else self._client_id, command.decode(), payload))
         self.request.send(len(command).to_bytes(1, 'big') + command + payload)   # Frame data
 
-    def handle_GetAudioParams(self, payload: str) -> Tuple[bytes, str]:  #pylint: disable=unused-argument
+    @staticmethod
+    def handle_GetAudioParams(payload: str) -> Tuple[bytes, str]:  #pylint: disable=unused-argument
         return (b'AudioParams', json.dumps(AUDIO_PARAMS, separators=(',', ':')))
 
     def handle_Auth(self, payload: str) -> Tuple[bytes, str]:
@@ -171,7 +172,7 @@ class ClientManagerRequestHandler(StreamRequestHandler):
             success, payload = False, 'Wrong key'
         else:
             success, payload = self.server.client_manager.new(self)
-            self._client_id = int.from_bytes(payload, 'big')
+            self._client_id = int.from_bytes(payload, 'big')  # pylint: disable=attribute-defined-outside-init
         return (b'AuthOk' if success else b'BadAuth', payload)
 
     def handle_SetName(self, payload: str) -> Tuple[bytes, str]:

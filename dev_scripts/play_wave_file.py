@@ -1,7 +1,8 @@
-import pyaudio
-import wave
 import time
+import wave
 from contextlib import closing
+
+import pyaudio
 
 
 FRAMES_PER_CHUNK = 1024

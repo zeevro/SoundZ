@@ -1,12 +1,11 @@
 ﻿from SoundZ.streams import UdpSocketIO
-from SoundZ.audio import Audio
-
+import os
 import queue
 import time
-import os
+from inspect import isclass
 
 import new_soundz
-from inspect import isclass
+from SoundZ.audio import Audio
 
 
 RECORD_TIME = 2

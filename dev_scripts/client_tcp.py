@@ -8,10 +8,12 @@ import socket
 import sys
 import threading
 import time
+from binascii import hexlify
 
-from SoundZ.audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter
-from SoundZ.streams import UdpSocketIO
 from SoundZ._opuslib import opuslib
+from SoundZ.audio import Audio, PushToTalkAudioInputFilter, VolumeChangeAudioInput, VoxAudioInputFilter
+from SoundZ.streams import UdpSocketIO
+
 
 try:
     import pynput
@@ -19,7 +21,6 @@ try:
 except ImportError:
     _have_pynput = False
 
-from binascii import hexlify
 
 
 SERVER_PORT = 4452

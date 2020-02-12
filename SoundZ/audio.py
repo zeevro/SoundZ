@@ -1,11 +1,12 @@
 ﻿import io
 import audioop
 import time
-import pyaudio
 import wave
-from operator import itemgetter
-from enum import Enum
 from contextlib import closing
+from enum import Enum
+from operator import itemgetter
+
+import pyaudio
 
 
 try:
@@ -51,7 +52,7 @@ def play_wave_file(filename):
             data = bytes(chunk_size)
             while len(data) == chunk_size:
                 data = wf.readframes(1024)
-                player.write(data)  # pylint: disable=no-member
+                player.write(data)
 
 
 def play_wave_file_async(filename):
@@ -59,7 +60,7 @@ def play_wave_file_async(filename):
 
     chunk_size = (wf.getnchannels() * wf.getsampwidth()) * WAVE_FILE_FRAMES_PER_CHUNK
 
-    def stream_callback(in_data, frame_count, time_info, status_flags):
+    def stream_callback(_in_data, _frame_count, _time_info, _status_flags):
         data = wf.readframes(1024)
         if len(data) < chunk_size:
             wf.close()
@@ -177,7 +178,7 @@ class Audio:
             if not self._output_stream.is_stopped():
                 try:
                     self._output_stream.stop_stream()
-                except:
+                except Exception:
                     pass
             self._output_stream.close()
             self._output_stream = None
@@ -186,7 +187,7 @@ class Audio:
             if not self._input_stream.is_stopped():
                 try:
                     self._input_stream.stop_stream()
-                except:
+                except Exception:
                     pass
             self._input_stream.close()
             self._input_stream = None
@@ -212,7 +213,8 @@ class AudioInputCallbackBase:
         self._audio = audio
         audio.add_callback(self.callback, self.callback_type)
 
-    def callback(self, frame):
+    @staticmethod
+    def callback(frame):
         return frame
 
     def stop(self):
@@ -349,7 +351,7 @@ if _have_pynput:
             return self._breached
 else:
     class PushToTalkAudioInputFilter(AudioInputFilterBase):
-        def __init__(self, *a, **kw):
+        def __init__(self, *a, **kw):  # pylint: disable=super-init-not-called
             raise NotImplementedError()
 
 

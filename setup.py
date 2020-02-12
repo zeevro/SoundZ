@@ -1,11 +1,11 @@
-from setuptools import setup
-from setuptools.command.install import install
-from distutils.spawn import find_executable
-from ctypes.util import find_library
-from http.client import urlsplit, HTTPConnection, HTTPSConnection
-import sys
 import os
 import subprocess
+import sys
+from distutils.spawn import find_executable
+from http.client import HTTPConnection, HTTPSConnection, urlsplit
+
+from setuptools import setup
+from setuptools.command.install import install
 
 
 def find_dll_in_path(fn, additional_paths=None):
@@ -18,10 +18,10 @@ def find_dll_in_path(fn, additional_paths=None):
 
 def is_opuslib_ok():
     try:
-        import opuslib
+        import opuslib  # pylint: disable=unused-import,import-outside-toplevel
     except ImportError:
         return find_dll_in_path('opus')
-    except:
+    except Exception:
         return False
     return True
 

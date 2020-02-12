@@ -1,6 +1,6 @@
-from http.client import urlsplit, HTTPConnection, HTTPSConnection
-import sys
 import os
+import sys
+from http.client import HTTPConnection, HTTPSConnection, urlsplit
 
 
 def get_windows():

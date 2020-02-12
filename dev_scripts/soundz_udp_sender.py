@@ -1,6 +1,7 @@
 ﻿import SoundZ.streams as sz
-import SoundZ.audio as audio
 import pynput
+
+import SoundZ.audio as audio
 
 
 class SoundZUdpSender:

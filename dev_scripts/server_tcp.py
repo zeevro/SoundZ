@@ -1,10 +1,9 @@
 ﻿from typing import Tuple
-from socketserver import ThreadingTCPServer, StreamRequestHandler
-import threading
 import json
+import threading
 import time
-
 from binascii import hexlify
+from socketserver import StreamRequestHandler, ThreadingTCPServer
 
 
 SERVER_PORT = 4452

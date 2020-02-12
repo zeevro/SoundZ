@@ -1,6 +1,7 @@
-from pyaudio import PyAudio, paInt16, paContinue, get_sample_size
 import audioop
 import time
+
+from pyaudio import PyAudio, get_sample_size, paContinue, paInt16
 
 
 # TODO: Add tray icon

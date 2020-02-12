@@ -1,6 +1,7 @@
 ﻿from SoundZ.streams import SoundZSyncingStreamDatagram, UdpSocketIO, DEFAULT_PORT
-from SoundZ.audio import Audio
 import threading
+
+from SoundZ.audio import Audio
 
 
 class SoundZUdpReceiver:

@@ -1,8 +1,8 @@
 ﻿from SoundZ.streams import *  # pylint: disable=unused-wildcard-import
-from SoundZ.audio import *  # pylint: disable=unused-wildcard-import
-
-from binascii import hexlify
 import queue
+from binascii import hexlify
+
+from SoundZ.audio import *  # pylint: disable=unused-wildcard-import
 
 
 RECORD_TIME = 3

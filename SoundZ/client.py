@@ -2,18 +2,17 @@
 import argparse
 import audioop
 import json
-import os
 import queue
 import socket
-import sys
 import threading
 import time
 
-from .audio import Audio, VolumeChangeAudioInput, VoxAudioInputFilter, PushToTalkAudioInputFilter, DEFAULT_VOX_THRESHOLD
 from ._opuslib import opuslib
+from .audio import DEFAULT_VOX_THRESHOLD, Audio, PushToTalkAudioInputFilter, VolumeChangeAudioInput, VoxAudioInputFilter
+
 
 try:
-    import pynput
+    import pynput  # pylint: disable=unused-import
     _have_pynput = True
 except ImportError:
     _have_pynput = False
@@ -133,7 +132,8 @@ class TcpManagerClient:
             self._events_thread.daemon = True
             self._events_thread.start()
 
-    def _decode_payload(self, decoder: str, payload: bytes) -> Union[None, str, dict, list, int, Tuple[int, str]]:
+    @staticmethod
+    def _decode_payload(decoder: str, payload: bytes) -> Union[None, str, dict, list, int, Tuple[int, str]]:
         if not payload:
             return
 
@@ -203,7 +203,7 @@ class TcpManagerClient:
     def close(self):
         try:
             self.request(b'LeaveChannel', timeout=1)
-        except:
+        except Exception:
             pass
         self._stop = True
         self._sock.close()

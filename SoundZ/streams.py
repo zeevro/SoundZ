@@ -1,9 +1,9 @@
 ﻿import pyaudio
-import struct
 import io
-import socket
-import time
 import os
+import socket
+import struct
+import time
 
 from ._opuslib import opuslib
 
