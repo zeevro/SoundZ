@@ -324,7 +324,7 @@ if _have_pynput:
         def _get_key_names(self, key):
             if isinstance(key, Enum):
                 return [k for k in dir(pynput.keyboard.Key) if key.name.startswith(k)]
-            return [self._listener.canonical(key)]
+            return [self._listener.canonical(key).char]
 
         def _is_breached(self):
             return self._pressed.issuperset(self.sequence)
