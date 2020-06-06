@@ -321,11 +321,10 @@ if _have_pynput:
             else:
                 self._sequence = set(seq)
 
-        @staticmethod
-        def _get_key_names(key):
+        def _get_key_names(self, key):
             if isinstance(key, Enum):
-                return (k for k in dir(pynput.keyboard.Key) if key.name.startswith(k))
-            return (key.char,)
+                return [k for k in dir(pynput.keyboard.Key) if key.name.startswith(k)]
+            return [self._listener.canonical(key)]
 
         def _is_breached(self):
             return self._pressed.issuperset(self.sequence)
