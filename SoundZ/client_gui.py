@@ -10,8 +10,8 @@ import tkinter.ttk
 
 import appdirs
 
-from .audio import AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, MeasureVolumeCallback, PushToTalkAudioInputFilter, VoxAudioInputFilter, play_wave_file_async
-from .client import DummyUser, SoundZClient
+from SoundZ.audio import AUDIO_INPUT_CALLBACK_TYPE_PROTOCOL, MeasureVolumeCallback, PushToTalkAudioInputFilter, VoxAudioInputFilter, play_wave_file_async
+from SoundZ.client import DummyUser, SoundZClient
 
 
 # TODO: Fix the issues with the server address input dialog

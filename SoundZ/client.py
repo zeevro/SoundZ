@@ -7,8 +7,8 @@ import socket
 import threading
 import time
 
-from ._opuslib import opuslib
-from .audio import DEFAULT_VOX_THRESHOLD, Audio, PushToTalkAudioInputFilter, VolumeChangeAudioInput, VoxAudioInputFilter
+from SoundZ._opuslib import opuslib
+from SoundZ.audio import DEFAULT_VOX_THRESHOLD, Audio, PushToTalkAudioInputFilter, VolumeChangeAudioInput, VoxAudioInputFilter
 
 
 try:

@@ -1,11 +1,10 @@
-﻿import pyaudio
-import io
-import os
+﻿import io
 import socket
 import struct
-import time
 
-from ._opuslib import opuslib
+import pyaudio
+
+from SoundZ._opuslib import opuslib
 
 
 # TODO: Calculate samples per frame so opuslib is happy with frame duration
