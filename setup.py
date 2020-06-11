@@ -66,4 +66,49 @@ class PreInstallCommand(install):
         install.run(self)
 
 
-setup(cmdclass={'install': PreInstallCommand})
+setup(
+    name='SoundZ',
+    version='0.0.1',
+    url='https://github.com/zeevro/soundz',
+    download_url='https://github.com/zeevro/soundz/archive/master.zip',
+    author='Zeev Rotshtein',
+    author_email='zeevro@gmail.com',
+    maintainer='Zeev Rotshtein',
+    maintainer_email='zeevro@gmail.com',
+    classifiers=[
+        'Development Status :: 2 - Pre-Alpha',
+        'License :: Public Domain',
+        'Natural Language :: English',
+        'Programming Language :: Python :: Python 3',
+    ],
+    license=None,
+    description='A small VoIP library with a server and client for multi-user voice channels',
+    keywords=[
+        'VoIP',
+        'voice',
+        'chat',
+        'network',
+    ],
+    include_package_data=True,
+    zip_safe=False,
+    packages=[
+        'SoundZ',
+    ],
+    install_requires=[
+        'pyaudio',
+        'opuslib',
+        'appdirs',
+        'pynput',
+    ],
+    entry_points=dict(
+        console_scripts=[
+            'soundz-server = SoundZ.server:main',
+        ],
+        gui_scripts=[
+            'soundz-client-gui = SoundZ.client_gui:main',
+        ],
+    ),
+    cmdclass=dict(
+        install=PreInstallCommand,
+    ),
+)
