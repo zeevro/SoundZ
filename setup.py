@@ -59,7 +59,7 @@ class PreInstallCommand(install):
     def run(self):
         if not is_opuslib_ok():
             if sys.platform == 'win32':
-                get_opuslib_windows(os.path.dirname(__file__))
+                get_opuslib_windows(os.path.join(os.path.dirname(sys.executable), 'DLLs'))
             elif sys.platform == 'linux':
                 get_opuslib_linux()
 
