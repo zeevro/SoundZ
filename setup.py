@@ -5,6 +5,7 @@ from distutils.spawn import find_executable
 from http.client import HTTPConnection, HTTPSConnection, urlsplit
 
 from setuptools import setup
+from setuptools.command.develop import develop
 from setuptools.command.install import install
 
 
@@ -54,16 +55,22 @@ def get_opuslib_linux():
         break
 
 
-class PreInstallCommand(install):
+class GetOpusLibAddon:
     """Pre-installation for installation mode."""
     def run(self):
         if not is_opuslib_ok():
             if sys.platform == 'win32':
-                get_opuslib_windows(os.path.join(os.path.dirname(sys.executable), 'DLLs'))
+                get_opuslib_windows(os.path.dirname(sys.executable))
             elif sys.platform == 'linux':
                 get_opuslib_linux()
 
-        install.run(self)
+        super().run()
+
+
+class InstallGetOpusLib(GetOpusLibAddon, install): pass
+
+
+class DevelopGetOpusLib(GetOpusLibAddon, develop): pass
 
 
 setup(
@@ -109,6 +116,7 @@ setup(
         ],
     ),
     cmdclass=dict(
-        install=PreInstallCommand,
+        develop=DevelopGetOpusLib,
+        install=InstallGetOpusLib,
     ),
 )
